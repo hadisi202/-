@@ -171,21 +171,7 @@ App({
   
   // 检查页面访问权限
   checkPageAccess(pagePath) {
-    // 登录页面始终可以访问
-    if (pagePath.includes('/pages/login/login')) {
-      return true
-    }
-    
-    // 其他页面需要登录
-    const userInfo = this.globalData.userInfo || wx.getStorageSync('userInfo')
-    if (!userInfo) {
-      // 重定向到登录页
-      wx.reLaunch({
-        url: '/pages/login/login'
-      })
-      return false
-    }
-    
+    // 取消登录拦截，所有页面均可访问
     return true
   },
   
@@ -205,10 +191,8 @@ App({
   logout() {
     this.clearUserData()
     this.globalData.userInfo = null
-    
-    wx.reLaunch({
-      url: '/pages/login/login'
-    })
+    // 取消登录页，登出后返回首页
+    wx.reLaunch({ url: '/pages/index/index' })
   },
 
   // 全局数据

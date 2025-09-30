@@ -239,22 +239,16 @@ Page({
 
   // 获取用户信息
   getUserInfo() {
-    const userInfo = app.getUserInfo()
-    if (userInfo) {
-      this.setData({ 
-        userInfo: {
-          nickName: userInfo.nickname || userInfo.username || '用户',
-          avatarUrl: userInfo.avatar || '',
-          department: userInfo.department || '',
-          position: userInfo.position || ''
-        }
-      })
-    } else {
-      // 如果没有用户信息，重定向到登录页
-      wx.reLaunch({
-        url: '/pages/login/login'
-      })
-    }
+    const userInfo = app.getUserInfo() || {}
+    // 没有登录信息时，使用游客信息，不再跳转登录
+    this.setData({ 
+      userInfo: {
+        nickName: userInfo.nickname || userInfo.username || '游客',
+        avatarUrl: userInfo.avatar || '',
+        department: userInfo.department || '',
+        position: userInfo.position || ''
+      }
+    })
   },
 
   // 获取天气信息
