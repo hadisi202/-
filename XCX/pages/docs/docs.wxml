@@ -1,0 +1,453 @@
+<!--pages/docs/docs.wxml-->
+<view class="container">
+  <!-- 顶部统计区域 -->
+  <view class="stats-section">
+    <view class="stats-grid">
+      <view class="stat-item">
+        <text class="stat-number">{{stats.total}}</text>
+        <text class="stat-label">总文档</text>
+      </view>
+      <view class="stat-item">
+        <text class="stat-number">{{stats.recent}}</text>
+        <text class="stat-label">最近编辑</text>
+      </view>
+      <view class="stat-item">
+        <text class="stat-number">{{stats.shared}}</text>
+        <text class="stat-label">共享文档</text>
+      </view>
+      <view class="stat-item">
+        <text class="stat-number">{{stats.favorites}}</text>
+        <text class="stat-label">收藏</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 快速操作 -->
+  <view class="quick-actions">
+    <view class="action-item" bindtap="createDocument">
+      <view class="action-icon create">📝</view>
+      <text class="action-text">新建文档</text>
+    </view>
+    <view class="action-item" bindtap="importDocument">
+      <view class="action-icon import">📁</view>
+      <text class="action-text">导入文档</text>
+    </view>
+    <view class="action-item" bindtap="scanDocument">
+      <view class="action-icon scan">📷</view>
+      <text class="action-text">扫描文档</text>
+    </view>
+    <view class="action-item" bindtap="showTemplates">
+      <view class="action-icon template">📋</view>
+      <text class="action-text">模板库</text>
+    </view>
+  </view>
+
+  <!-- 搜索和筛选区域 -->
+  <view class="search-section">
+    <view class="search-bar">
+      <input class="search-input" placeholder="搜索文档" value="{{searchText}}" bindinput="onSearchInput" />
+      <text class="search-icon">🔍</text>
+    </view>
+    
+    <view class="filter-tabs">
+      <view class="filter-tab {{currentFilter === 'all' ? 'active' : ''}}" bindtap="switchFilter" data-filter="all">
+        <text>全部</text>
+      </view>
+      <view class="filter-tab {{currentFilter === 'recent' ? 'active' : ''}}" bindtap="switchFilter" data-filter="recent">
+        <text>最近</text>
+      </view>
+      <view class="filter-tab {{currentFilter === 'shared' ? 'active' : ''}}" bindtap="switchFilter" data-filter="shared">
+        <text>共享</text>
+      </view>
+      <view class="filter-tab {{currentFilter === 'favorites' ? 'active' : ''}}" bindtap="switchFilter" data-filter="favorites">
+        <text>收藏</text>
+      </view>
+    </view>
+    
+    <view class="sort-options">
+      <view class="sort-item {{currentSort === 'updatedAt' ? 'active' : ''}}" bindtap="switchSort" data-sort="updatedAt">
+        <text>最近修改</text>
+      </view>
+      <view class="sort-item {{currentSort === 'createdAt' ? 'active' : ''}}" bindtap="switchSort" data-sort="createdAt">
+        <text>创建时间</text>
+      </view>
+      <view class="sort-item {{currentSort === 'title' ? 'active' : ''}}" bindtap="switchSort" data-sort="title">
+        <text>标题</text>
+      </view>
+      <view class="sort-item {{currentSort === 'size' ? 'active' : ''}}" bindtap="switchSort" data-sort="size">
+        <text>大小</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 文档列表 -->
+  <view class="docs-list" wx:if="{{filteredDocs.length > 0}}">
+    <view class="doc-item" wx:for="{{filteredDocs}}" wx:key="id" bindtap="openDocument" data-item="{{item}}">
+      <!-- 文档图标 -->
+      <view class="doc-icon {{item.type}}">
+        <text class="icon-text">{{item.iconText}}</text>
+      </view>
+      
+      <!-- 文档信息 -->
+      <view class="doc-content">
+        <text class="doc-title">{{item.title}}</text>
+        <text class="doc-desc" wx:if="{{item.description}}">{{item.description}}</text>
+        
+        <!-- 标签 -->
+        <view class="doc-tags" wx:if="{{item.tags && item.tags.length > 0}}">
+          <text class="doc-tag" wx:for="{{item.tags}}" wx:for-item="tag" wx:key="*this">{{tag}}</text>
+        </view>
+        
+        <!-- 元信息 -->
+        <view class="doc-meta">
+          <text class="doc-time">{{item.updatedAtText}}</text>
+          <text class="doc-size" wx:if="{{item.size}}">{{item.sizeText}}</text>
+          <text class="doc-author" wx:if="{{item.author}}">{{item.author}}</text>
+        </view>
+      </view>
+      
+      <!-- 状态指示器 -->
+      <view class="doc-status">
+        <view class="status-indicator shared" wx:if="{{item.isShared}}">🔗</view>
+        <view class="status-indicator favorite {{item.isFavorite ? 'active' : ''}}" bindtap="toggleFavorite" data-id="{{item.id}}" catchtap="preventBubble">⭐</view>
+        <view class="status-indicator sync {{item.syncStatus}}" wx:if="{{item.syncStatus}}">{{item.syncIcon}}</view>
+      </view>
+      
+      <!-- 操作按钮 -->
+      <view class="doc-actions">
+        <view class="action-btn" bindtap="showDocOptions" data-item="{{item}}" catchtap="preventBubble">
+          <text class="action-icon">⋯</text>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 空状态 -->
+  <view class="empty-state" wx:else>
+    <text class="empty-icon">📄</text>
+    <text class="empty-text">{{emptyText}}</text>
+    <text class="empty-action" bindtap="createDocument" wx:if="{{currentFilter === 'all' || currentFilter === 'recent'}}">创建第一个文档</text>
+  </view>
+
+  <!-- 浮动操作按钮 -->
+  <view class="fab" bindtap="createDocument">
+    <text class="fab-icon">+</text>
+  </view>
+
+  <!-- 文档创建/编辑弹窗 -->
+  <view class="modal-overlay" wx:if="{{showDocModal}}" bindtap="hideDocModal">
+    <view class="modal-content" catchtap="preventClose">
+      <view class="modal-header">
+        <text class="modal-title">{{editingDoc.id ? '编辑文档' : '创建文档'}}</text>
+        <text class="modal-close" bindtap="hideDocModal">✕</text>
+      </view>
+      
+      <view class="modal-body">
+        <!-- 标题 -->
+        <view class="input-group">
+          <text class="input-label">标题 <text class="input-required">*</text></text>
+          <input class="input" placeholder="请输入文档标题" value="{{editingDoc.title}}" bindinput="onTitleInput" />
+        </view>
+        
+        <!-- 描述 -->
+        <view class="input-group">
+          <text class="input-label">描述</text>
+          <textarea class="input textarea" placeholder="请输入文档描述" value="{{editingDoc.description}}" bindinput="onDescInput"></textarea>
+        </view>
+        
+        <!-- 文档类型 -->
+        <view class="input-group">
+          <text class="input-label">文档类型</text>
+          <view class="type-selector">
+            <view class="type-option {{editingDoc.type === 'text' ? 'active' : ''}}" bindtap="selectType" data-type="text">
+              <text class="type-icon">📝</text>
+              <text>文本</text>
+            </view>
+            <view class="type-option {{editingDoc.type === 'markdown' ? 'active' : ''}}" bindtap="selectType" data-type="markdown">
+              <text class="type-icon">📋</text>
+              <text>Markdown</text>
+            </view>
+            <view class="type-option {{editingDoc.type === 'table' ? 'active' : ''}}" bindtap="selectType" data-type="table">
+              <text class="type-icon">📊</text>
+              <text>表格</text>
+            </view>
+          </view>
+        </view>
+        
+        <!-- 标签 -->
+        <view class="input-group">
+          <text class="input-label">标签</text>
+          <view class="tag-input-container">
+            <view class="selected-tags" wx:if="{{editingDoc.tags && editingDoc.tags.length > 0}}">
+              <view class="selected-tag" wx:for="{{editingDoc.tags}}" wx:key="*this">
+                <text>{{item}}</text>
+                <text class="tag-remove" bindtap="removeTag" data-tag="{{item}}">×</text>
+              </view>
+            </view>
+            <view class="tag-input-row">
+              <input class="tag-input" placeholder="添加标签" value="{{inputTag}}" bindinput="onTagInput" bindconfirm="addTag" />
+              <button class="tag-add-btn" bindtap="addTag">添加</button>
+            </view>
+          </view>
+        </view>
+        
+        <!-- 共享设置 -->
+        <view class="input-group">
+          <view class="switch-row">
+            <text class="input-label">允许共享</text>
+            <switch checked="{{editingDoc.isShared}}" bindchange="onShareChange" />
+          </view>
+          <view class="share-options" wx:if="{{editingDoc.isShared}}">
+            <view class="permission-item">
+              <text class="permission-label">权限设置：</text>
+              <picker mode="selector" range="{{permissionOptions}}" value="{{editingDoc.permissionIndex}}" bindchange="onPermissionChange">
+                <view class="picker-input">
+                  <text class="picker-text">{{permissionOptions[editingDoc.permissionIndex]}}</text>
+                  <text class="picker-icon">🔽</text>
+                </view>
+              </picker>
+            </view>
+          </view>
+        </view>
+      </view>
+      
+      <view class="modal-footer">
+        <button class="btn btn-secondary" bindtap="hideDocModal">取消</button>
+        <button class="btn btn-primary" bindtap="saveDocument">保存</button>
+      </view>
+    </view>
+  </view>
+
+  <!-- 文档操作弹窗 -->
+  <view class="action-sheet" wx:if="{{showDocOptions}}" bindtap="hideDocOptions">
+    <view class="action-sheet-content" catchtap="preventClose">
+      <view class="action-sheet-header">
+        <text class="action-sheet-title">{{selectedDoc.title}}</text>
+        <text class="action-sheet-close" bindtap="hideDocOptions">✕</text>
+      </view>
+      <view class="action-list">
+        <view class="action-item" bindtap="editDocument">
+          <text class="action-icon">✏️</text>
+          <text class="action-text">编辑</text>
+        </view>
+        <view class="action-item" bindtap="duplicateDocument">
+          <text class="action-icon">📋</text>
+          <text class="action-text">复制</text>
+        </view>
+        <view class="action-item" bindtap="shareDocument">
+          <text class="action-icon">📤</text>
+          <text class="action-text">分享</text>
+        </view>
+        <view class="action-item" bindtap="exportDocument">
+          <text class="action-icon">💾</text>
+          <text class="action-text">导出</text>
+        </view>
+        <view class="action-item" bindtap="moveToFolder">
+          <text class="action-icon">📁</text>
+          <text class="action-text">移动到文件夹</text>
+        </view>
+        <view class="action-item danger" bindtap="deleteDocument">
+          <text class="action-icon">🗑️</text>
+          <text class="action-text">删除</text>
+        </view>
+      </view>
+      <view class="action-cancel" bindtap="hideDocOptions">
+        <text>取消</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 模板选择弹窗 -->
+  <view class="modal-overlay" wx:if="{{showTemplates}}" bindtap="hideTemplates">
+    <view class="modal-content" catchtap="preventClose">
+      <view class="modal-header">
+        <text class="modal-title">选择模板</text>
+        <text class="modal-close" bindtap="hideTemplates">✕</text>
+      </view>
+      
+      <view class="modal-body">
+        <view class="template-grid">
+          <view class="template-item" wx:for="{{templates}}" wx:key="id" bindtap="createFromTemplate" data-template="{{item}}">
+            <view class="template-icon {{item.type}}">
+              <text>{{item.icon}}</text>
+            </view>
+            <text class="template-title">{{item.title}}</text>
+            <text class="template-desc">{{item.description}}</text>
+          </view>
+        </view>
+      </view>
+      
+      <view class="modal-footer">
+        <button class="btn btn-secondary" bindtap="hideTemplates">取消</button>
+      </view>
+    </view>
+  </view>
+
+  <!-- 文档编辑器弹窗 -->
+  <view class="modal-overlay editor-modal" wx:if="{{showEditor}}" bindtap="hideEditor">
+    <view class="editor-content" catchtap="preventClose">
+      <view class="editor-header">
+        <view class="editor-title-section">
+          <text class="editor-title">{{currentDoc.title}}</text>
+          <view class="editor-status">
+            <text class="save-status {{currentDoc.saveStatus}}">{{currentDoc.saveStatusText}}</text>
+            <text class="sync-time" wx:if="{{collaborativeData.isCollaborativeMode}}">最后同步: {{collaborativeData.lastSyncTime}}</text>
+          </view>
+        </view>
+        <view class="editor-actions">
+          <text class="editor-action" bindtap="toggleCollaborativeMode" title="{{collaborativeData.isCollaborativeMode ? '关闭协同编辑' : '开启协同编辑'}}">
+            {{collaborativeData.isCollaborativeMode ? '🔗' : '🔒'}}
+          </text>
+          <text class="editor-action" bindtap="viewEditHistory" title="编辑历史">📋</text>
+          <text class="editor-action" bindtap="inviteCollaborator" title="邀请协作者">👥</text>
+          <text class="editor-action" bindtap="saveCurrentDoc" title="保存">💾</text>
+          <text class="editor-action" bindtap="hideEditor" title="关闭">✕</text>
+        </view>
+      </view>
+      
+      <!-- 协同编辑工具栏 -->
+      <view class="collaborative-toolbar" wx:if="{{collaborativeData.isCollaborativeMode}}">
+        <view class="online-users">
+          <text class="toolbar-label">在线用户:</text>
+          <view class="user-avatars">
+            <view class="user-avatar {{user.isCurrentUser ? 'current-user' : ''}}" wx:for="{{collaborativeData.onlineUsers}}" wx:key="id" wx:for-item="user">
+              <image class="avatar-img" src="{{user.avatar}}" mode="aspectFill"></image>
+              <text class="user-name">{{user.name}}</text>
+            </view>
+          </view>
+        </view>
+        <view class="collaborative-status">
+          <text class="status-indicator online">●</text>
+          <text class="status-text">协同编辑已开启</text>
+        </view>
+      </view>
+      
+      <view class="editor-body">
+        <view wx:if="{{currentDoc.type === 'excel' || currentDoc.type === 'table'}}" class="table-viewer">
+          <view class="table-header">
+            <text class="table-title">{{currentDoc.title}}</text>
+            <text class="table-info">{{currentDoc.type === 'excel' ? 'Excel表格' : 'CSV表格'}}</text>
+          </view>
+          <scroll-view class="table-container" scroll-x="true">
+            <view class="table-content" wx:if="{{currentDoc.tableData}}">
+              <!-- 表头 -->
+              <view class="table-row table-header-row">
+                <view class="table-cell table-header-cell" wx:for="{{currentDoc.tableData[0]}}" wx:key="index">
+                  <text>{{item}}</text>
+                </view>
+              </view>
+              <!-- 数据行 -->
+              <view class="table-row" wx:for="{{currentDoc.tableData}}" wx:for-index="rowIndex" wx:for-item="row" wx:key="rowIndex" wx:if="{{rowIndex > 0}}">
+                <view class="table-cell {{currentDoc.isEditMode ? 'editable' : ''}}" wx:for="{{row}}" wx:for-index="colIndex" wx:for-item="cell" wx:key="colIndex">
+                  <input wx:if="{{currentDoc.isEditMode}}" class="cell-input" value="{{cell}}" data-row="{{rowIndex}}" data-col="{{colIndex}}" bindinput="onCellInput" />
+                  <text wx:else>{{cell}}</text>
+                </view>
+              </view>
+            </view>
+          </scroll-view>
+          <view class="table-footer">
+            <text class="table-stats">共 {{currentDoc.tableData ? currentDoc.tableData.length - 1 : 0}} 行数据</text>
+            <view class="table-actions">
+              <text class="edit-mode-btn" bindtap="toggleEditMode">{{currentDoc.isEditMode ? '预览模式' : '编辑模式'}}</text>
+              <text wx:if="{{currentDoc.isEditMode}}" class="table-action-btn" bindtap="addTableRow">+ 添加行</text>
+              <text wx:if="{{currentDoc.isEditMode}}" class="table-action-btn" bindtap="saveTableData">保存表格</text>
+            </view>
+          </view>
+        </view>
+        <view wx:else class="rich-editor-container">
+          <!-- 富文本工具栏 -->
+          <view class="rich-toolbar">
+            <view class="toolbar-group">
+              <text class="toolbar-btn {{currentDoc.format.bold ? 'active' : ''}}" bindtap="toggleFormat" data-format="bold">B</text>
+              <text class="toolbar-btn {{currentDoc.format.italic ? 'active' : ''}}" bindtap="toggleFormat" data-format="italic">I</text>
+              <text class="toolbar-btn {{currentDoc.format.underline ? 'active' : ''}}" bindtap="toggleFormat" data-format="underline">U</text>
+            </view>
+            <view class="toolbar-group">
+              <text class="toolbar-btn" bindtap="insertFormat" data-format="h1">H1</text>
+              <text class="toolbar-btn" bindtap="insertFormat" data-format="h2">H2</text>
+              <text class="toolbar-btn" bindtap="insertFormat" data-format="h3">H3</text>
+            </view>
+            <view class="toolbar-group">
+              <text class="toolbar-btn" bindtap="insertFormat" data-format="list">•</text>
+              <text class="toolbar-btn" bindtap="insertFormat" data-format="number">1.</text>
+              <text class="toolbar-btn" bindtap="insertFormat" data-format="quote">"</text>
+            </view>
+            <view class="toolbar-group">
+              <text class="toolbar-btn" bindtap="insertFormat" data-format="link">🔗</text>
+              <text class="toolbar-btn" bindtap="insertFormat" data-format="image">📷</text>
+              <text class="toolbar-btn" bindtap="insertFormat" data-format="table">⊞</text>
+            </view>
+          </view>
+          
+          <!-- 富文本编辑区域 -->
+          <view class="rich-editor-wrapper">
+            <textarea class="editor-textarea rich-text" placeholder="开始编写您的文档..." value="{{currentDoc.content}}" bindinput="onContentInput" focus="{{editorFocus}}"></textarea>
+            
+            <!-- 格式预览区域 -->
+            <view class="format-preview" wx:if="{{currentDoc.showPreview}}">
+              <view class="preview-content">
+                <rich-text nodes="{{currentDoc.formattedContent}}"></rich-text>
+              </view>
+            </view>
+          </view>
+          
+          <!-- 编辑模式切换 -->
+          <view class="editor-mode-switch">
+            <text class="mode-btn {{!currentDoc.showPreview ? 'active' : ''}}" bindtap="switchEditorMode" data-mode="edit">编辑</text>
+            <text class="mode-btn {{currentDoc.showPreview ? 'active' : ''}}" bindtap="switchEditorMode" data-mode="preview">预览</text>
+          </view>
+        </view>
+        <textarea wx:if="{{(currentDoc.type === 'excel' || currentDoc.type === 'table') && currentDoc.isEditMode}}" class="editor-textarea table-edit-mode" placeholder="编辑表格数据..." value="{{currentDoc.content}}" bindinput="onContentInput"></textarea>
+      </view>
+      
+      <view class="editor-footer">
+        <view class="editor-status">
+          <text class="word-count">字数：{{currentDoc.wordCount}}</text>
+          <text class="save-status {{currentDoc.saveStatus}}">{{currentDoc.saveStatusText}}</text>
+        </view>
+        <view class="editor-tools">
+          <text class="tool-btn" bindtap="insertTemplate" data-template="heading">H</text>
+          <text class="tool-btn" bindtap="insertTemplate" data-template="bold">B</text>
+          <text class="tool-btn" bindtap="insertTemplate" data-template="italic">I</text>
+          <text class="tool-btn" bindtap="insertTemplate" data-template="list">•</text>
+          <button class="complete-btn" bindtap="completeEditing">完成编辑</button>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 编辑历史弹窗 -->
+  <view class="modal-overlay" wx:if="{{showEditHistory}}" bindtap="hideEditHistory">
+    <view class="modal-content edit-history-modal" catchtap="preventClose">
+      <view class="modal-header">
+        <text class="modal-title">编辑历史</text>
+        <text class="modal-close" bindtap="hideEditHistory">✕</text>
+      </view>
+      
+      <view class="modal-body">
+        <view class="edit-history-list" wx:if="{{currentDoc.editHistory && currentDoc.editHistory.length > 0}}">
+          <view class="history-item" wx:for="{{currentDoc.editHistory}}" wx:key="id" wx:for-item="record">
+            <view class="history-header">
+              <view class="user-info">
+                <text class="user-name">{{record.userName}}</text>
+                <text class="action-type">{{record.action === 'edit' ? '编辑了文档' : '创建了文档'}}</text>
+              </view>
+              <text class="history-time">{{record.timestamp}}</text>
+            </view>
+            <view class="history-details" wx:if="{{record.changes}}">
+              <text class="change-description">{{record.changes.description}}</text>
+              <text class="content-length" wx:if="{{record.contentLength}}">内容长度: {{record.contentLength}} 字符</text>
+            </view>
+          </view>
+        </view>
+        <view class="empty-history" wx:else>
+          <text class="empty-text">暂无编辑历史</text>
+        </view>
+      </view>
+      
+      <view class="modal-footer">
+        <button class="btn btn-secondary" bindtap="hideEditHistory">关闭</button>
+      </view>
+    </view>
+  </view>
+</view>

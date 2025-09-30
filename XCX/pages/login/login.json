@@ -1,0 +1,8 @@
+{
+  "navigationBarTitleText": "用户登录",
+  "navigationStyle": "custom",
+  "backgroundColor": "#0c0c0c",
+  "backgroundTextStyle": "light",
+  "enablePullDownRefresh": false,
+  "disableScroll": true
+}
