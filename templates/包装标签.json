@@ -1,0 +1,210 @@
+{
+  "canvas_width": 800,
+  "canvas_height": 560,
+  "elements": [
+    {
+      "font_family": "Arial",
+      "font_size": 20,
+      "font_bold": false,
+      "font_italic": false,
+      "color": "#000000",
+      "background_color": "#FFFFFF",
+      "border": true,
+      "border_width": 1,
+      "border_color": "#000000",
+      "alignment": "left",
+      "padding": 0,
+      "text": "订单",
+      "data_field": "custom_combination",
+      "combination_config": {
+        "template": "订单号：{order_number}",
+        "fields": [
+          "order_number"
+        ]
+      },
+      "type": "text",
+      "x": 25.0,
+      "y": 19.0,
+      "width": 447.0,
+      "height": 30.0
+    },
+    {
+      "font_family": "Arial",
+      "font_size": 20,
+      "font_bold": false,
+      "font_italic": false,
+      "color": "#000000",
+      "background_color": "#FFFFFF",
+      "border": true,
+      "border_width": 1,
+      "border_color": "#000000",
+      "alignment": "left",
+      "padding": 0,
+      "text": "客户地址",
+      "data_field": "custom_combination",
+      "combination_config": {
+        "template": "客户地址：{customer_address}",
+        "fields": [
+          "customer_address"
+        ]
+      },
+      "type": "text",
+      "x": 23.0,
+      "y": 56.0,
+      "width": 456.0,
+      "height": 30.0
+    },
+    {
+      "font_family": "Arial",
+      "font_size": 20,
+      "font_bold": false,
+      "font_italic": false,
+      "color": "#000000",
+      "background_color": "#FFFFFF",
+      "border": true,
+      "border_width": 1,
+      "border_color": "#000000",
+      "alignment": "left",
+      "padding": 0,
+      "text": "房间",
+      "data_field": "custom_combination",
+      "combination_config": {
+        "template": "房间：{room_number}",
+        "fields": [
+          "room_number"
+        ]
+      },
+      "type": "text",
+      "x": 491.0,
+      "y": 17.0,
+      "width": 302.0,
+      "height": 121.0
+    },
+    {
+      "font_family": "Arial",
+      "font_size": 20,
+      "font_bold": false,
+      "font_italic": false,
+      "color": "#000000",
+      "background_color": "#FFFFFF",
+      "border": true,
+      "border_width": 1,
+      "border_color": "#000000",
+      "alignment": "left",
+      "padding": 0,
+      "text": "柜号",
+      "data_field": "custom_combination",
+      "combination_config": {
+        "template": "柜号：{cabinet_number}",
+        "fields": [
+          "cabinet_number"
+        ]
+      },
+      "type": "text",
+      "x": 494.0,
+      "y": 142.0,
+      "width": 302.0,
+      "height": 93.0
+    },
+    {
+      "font_family": "Arial",
+      "font_size": 15,
+      "font_bold": false,
+      "font_italic": false,
+      "color": "#000000",
+      "background_color": "#FFFFFF",
+      "border": true,
+      "border_width": 1,
+      "border_color": "#000000",
+      "alignment": "left",
+      "padding": 0,
+      "text": "板件列表",
+      "data_field": "custom_combination",
+      "combination_config": {
+        "template": "板件列表：\n{package_component_list}",
+        "fields": [
+          "package_component_list"
+        ]
+      },
+      "type": "text",
+      "x": 26.0,
+      "y": 102.0,
+      "width": 473.0,
+      "height": 438.0
+    },
+    {
+      "font_family": "Arial",
+      "font_size": 23,
+      "font_bold": false,
+      "font_italic": false,
+      "color": "#000000",
+      "background_color": "#FFFFFF",
+      "border": true,
+      "border_width": 1,
+      "border_color": "#000000",
+      "alignment": "center",
+      "padding": 0,
+      "text": "板件数",
+      "data_field": "custom_combination",
+      "combination_config": {
+        "template": "第 {package_index} 包，共 {component_count} 片",
+        "fields": [
+          "package_index",
+          "component_count"
+        ]
+      },
+      "type": "text",
+      "x": 494.0,
+      "y": 236.0,
+      "width": 295.0,
+      "height": 59.0
+    },
+    {
+      "font_family": "Arial",
+      "font_size": 12,
+      "font_bold": false,
+      "font_italic": false,
+      "color": "#000000",
+      "background_color": "#FFFFFF",
+      "border": true,
+      "border_width": 1,
+      "border_color": "#000000",
+      "alignment": "left",
+      "padding": 0,
+      "text": "",
+      "data_field": "package_number",
+      "data": "",
+      "type": "qrcode",
+      "x": 561.0,
+      "y": 328.0,
+      "width": 188.0,
+      "height": 202.0
+    },
+    {
+      "font_family": "Arial",
+      "font_size": 20,
+      "font_bold": false,
+      "font_italic": false,
+      "color": "#000000",
+      "background_color": "#FFFFFF",
+      "border": true,
+      "border_width": 1,
+      "border_color": "#000000",
+      "alignment": "left",
+      "padding": 0,
+      "text": "包裹号",
+      "data_field": "custom_combination",
+      "combination_config": {
+        "template": "{package_number}",
+        "fields": [
+          "package_number"
+        ]
+      },
+      "type": "text",
+      "x": 508.0,
+      "y": 292.0,
+      "width": 281.0,
+      "height": 36.0
+    }
+  ]
+}
