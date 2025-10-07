@@ -2201,14 +2201,35 @@ class LabelPrinting(QWidget):
             print(f"保存打印日志失败: {e}")
     
     def load_default_template(self):
-        """加载默认模板1"""
-        import os
-        template_path = os.path.join(os.path.dirname(__file__), 'templates', '1.json')
+        """加载默认模板：优先 templates/1.json，不存在则回退到 custom_templates 中第一个模板"""
+        import os, json
+        base_dir = os.path.dirname(__file__)
+        template_path = os.path.join(base_dir, 'templates', '1.json')
         if os.path.exists(template_path):
             try:
                 self.load_template(template_path)
+                return
             except Exception as e:
                 print(f"加载默认模板失败：{str(e)}")
+        try:
+            cust_dir = os.path.join(base_dir, 'custom_templates')
+            if os.path.isdir(cust_dir):
+                candidates = [
+                    os.path.join(cust_dir, name)
+                    for name in os.listdir(cust_dir)
+                    if name.lower().endswith('.json')
+                ]
+                preferred = [p for p in candidates if os.path.basename(p).lower() == 'custom_template_1.json']
+                if preferred:
+                    self.load_template(preferred[0])
+                    return
+                if candidates:
+                    candidates.sort()
+                    self.load_template(candidates[0])
+                    return
+        except Exception as e:
+            print(f"加载自定义模板失败：{e}")
+        print("未找到可用的标签模板，请在 custom_templates 目录中添加 .json 模板文件")
     
     def render_to_printer(self, printer):
         """渲染到打印机（支持自动分页）"""
