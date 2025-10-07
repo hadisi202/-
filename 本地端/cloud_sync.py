@@ -125,20 +125,19 @@ def _chunk(items: List[Dict], size: int) -> Iterable[List[Dict]]:
 
 # 简单文件日志工具
 def _log(msg: str):
-     try:
--        ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-+        ts = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-         line = f'[{ts}] {msg}'
-         print(line)
-         base_dir = os.path.dirname(os.path.abspath(__file__))
-         log_path = os.path.join(base_dir, 'cloud_sync.log')
-         with open(log_path, 'a', encoding='utf-8') as f:
-             f.write(line + '\n')
-     except Exception:
-         try:
-             print(msg)
-         except Exception:
-             pass
+    try:
+        ts = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        line = f'[{ts}] {msg}'
+        print(line)
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        log_path = os.path.join(base_dir, 'cloud_sync.log')
+        with open(log_path, 'a', encoding='utf-8') as f:
+            f.write(line + '\n')
+    except Exception:
+        try:
+            print(msg)
+        except Exception:
+            pass
 
 
 def post_json(base_url: str, path: str, api_key: str, payload: Dict, verify: bool = True) -> Dict:
