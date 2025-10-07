@@ -52,9 +52,21 @@ class RealTimeCloudSync:
             line = f'[{ts}] {msg}'
             # 控制台输出（如有）
             print(line)
-            # 追加到日志文件
+            # 追加到日志文件（带简单滚动）
             base_dir = os.path.dirname(os.path.abspath(__file__))
             log_path = os.path.join(base_dir, 'cloud_sync.log')
+            # 简单日志滚动：超过5MB则备份为 cloud_sync.log.bak
+            try:
+                if os.path.exists(log_path) and os.path.getsize(log_path) > 5 * 1024 * 1024:
+                    bak_path = os.path.join(base_dir, 'cloud_sync.log.bak')
+                    try:
+                        if os.path.exists(bak_path):
+                            os.remove(bak_path)
+                    except Exception:
+                        pass
+                    os.replace(log_path, bak_path)
+            except Exception:
+                pass
             with open(log_path, 'a', encoding='utf-8') as f:
                 f.write(line + '\n')
         except Exception:
@@ -68,6 +80,17 @@ class RealTimeCloudSync:
         if self.running:
             self._log("同步服务已在运行中")
             return
+        # 进程级互斥：通过锁文件避免多进程并发推送
+        try:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            self._lock_path = os.path.join(base_dir, 'sync.lock')
+            # 独占创建，不存在时创建；存在时视为其他进程在运行
+            self._lock_file = open(self._lock_path, 'x')
+        except FileExistsError:
+            self._log("检测到已有同步服务在运行（sync.lock 存在），已取消启动以避免多端并发冲突")
+            return
+        except Exception as e:
+            self._log(f"创建锁文件失败：{e}")
         # 检查必要配置
         if not self.packops_api_key:
             self._log("错误：未配置 PACKOPS_API_KEY 环境变量，且未在 invoke_packops_get_search.json 中找到 API Key，无法推送到云端。")
@@ -86,6 +109,14 @@ class RealTimeCloudSync:
         self.running = False
         if self.sync_thread:
             self.sync_thread.join(timeout=5)
+        # 释放锁文件
+        try:
+            if hasattr(self, '_lock_file') and self._lock_file:
+                self._lock_file.close()
+            if hasattr(self, '_lock_path') and self._lock_path and os.path.exists(self._lock_path):
+                os.remove(self._lock_path)
+        except Exception:
+            pass
         self._log("实时云数据库同步服务已停止")
 
     def _post_json(self, path: str, payload: Dict) -> Dict:
@@ -431,7 +462,7 @@ class RealTimeCloudSync:
         return sanitized
 
     def _post_items_in_chunks(self, path: str, items: List[Dict], chunk_size: int = 300) -> Dict:
-        """分片推送，兼容 CLI 兜底场景避免 --params 过大导致失败"""
+        """分片推送，兼容 CLI 兜底场景避免 --params 过大导致失败；带重试退避"""
         # CLI 模式下使用更小的分片以规避 Windows 命令行长度限制
         if not self.packops_base_url:
             if '/components' in path:
@@ -446,8 +477,28 @@ class RealTimeCloudSync:
         for i in range(0, len(items), chunk_size):
             part = items[i:i + chunk_size]
             part = self._sanitize_items(part)
-            res = self._post_json(path, {'items': part})
-            results.append(res)
+            # 简单重试：最多3次，指数退避
+            attempt = 0
+            backoff = 1.0
+            last_res = None
+            while attempt < 3:
+                res = self._post_json(path, {'items': part})
+                last_res = res
+                # 判断错误：有 error 或 HTTP状态非2xx
+                status = res.get('status') if isinstance(res, dict) else None
+                if isinstance(res, dict) and ('error' in res):
+                    self._log(f"分片推送失败，重试中（{attempt+1}/3）：{res.get('error')}")
+                    time.sleep(backoff)
+                    backoff *= 2
+                    attempt += 1
+                elif status and (not str(status).startswith('2')):
+                    self._log(f"分片推送HTTP错误{status}，重试中（{attempt+1}/3）")
+                    time.sleep(backoff)
+                    backoff *= 2
+                    attempt += 1
+                else:
+                    break
+            results.append(last_res)
         return {'ok': True, 'chunks': results, 'total_chunks': len(results)}
 
     def _perform_full_sync(self):
