@@ -1,0 +1,12 @@
+{
+  "httpMethod": "GET",
+  "path": "/packOps",
+  "headers": {
+    "X-API-Key": "hds202hds202",
+    "Content-Type": "application/json"
+  },
+  "queryStringParameters": {
+    "path": "/search",
+    "code": "2507865594654Q"
+  }
+}

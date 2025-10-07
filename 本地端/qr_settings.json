@@ -1,0 +1,12 @@
+{
+  "package_patterns": [
+    "^[A-Z]{2,4}\\d{8,12}$",
+    "^HDS\\d{11}$",
+    "^\\d{10,15}$"
+  ],
+  "custom_prefix": "HDS",
+  "auto_generate": true,
+  "qr_size": 200,
+  "qr_border": 4,
+  "last_sequence": 1
+}

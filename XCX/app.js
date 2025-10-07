@@ -1,6 +1,16 @@
 // app.js
+const api = require('./utils/api.js')
 App({
   onLaunch() {
+    // 初始化云开发环境
+    if (!wx.cloud) {
+      console.error('请使用基础库 2.2.3 或以上以使用云能力')
+    } else {
+      wx.cloud.init({
+        env: wx.cloud.DYNAMIC_CURRENT_ENV,
+        traceUser: true
+      })
+    }
     // 展示本地存储能力
     const logs = wx.getStorageSync('logs') || []
     logs.unshift(Date.now())
@@ -23,8 +33,22 @@ App({
     // 预加载页面
     this.preloadPages()
     
-    // 检查登录状态
+    // 取消登录拦截
     this.checkLoginStatus()
+    // 方案一（云做中心）：不再自动探测本地API，避免不必要的网络尝试
+    // 如需临时覆盖，可在设置页手动设定 API_BASE_OVERRIDE
+    // try {
+    //   api.detectApiBase().then((base) => {
+    //     if (base) {
+    //       console.log('检测到可用本地API:', base)
+    //       wx.setStorageSync('API_BASE_DETECTED', base)
+    //     }
+    //   }).catch((err) => {
+    //     console.warn('本地API自动检测未找到可用地址', (err && err.message) || '')
+    //   })
+    // } catch (e) {
+    //   console.warn('自动检测API时出现异常', e && e.message)
+    // }
   },
 
   onShow() {
@@ -65,11 +89,7 @@ App({
     try {
       // 预加载关键页面，提高切换速度
       const pages = [
-        'pages/index/index',
-        'pages/docs/docs',
-        'pages/todo/todo',
-        'pages/meeting/meeting',
-        'pages/contacts/contacts'
+        'pages/index/index'
       ]
       
       pages.forEach(page => {
@@ -90,26 +110,6 @@ App({
 
   // 初始化应用数据
   initData() {
-    // 初始化待办事项
-    if (!wx.getStorageSync('todos')) {
-      wx.setStorageSync('todos', [])
-    }
-
-    // 初始化文档
-    if (!wx.getStorageSync('documents')) {
-      wx.setStorageSync('documents', [])
-    }
-
-    // 初始化会议
-    if (!wx.getStorageSync('meetings')) {
-      wx.setStorageSync('meetings', [])
-    }
-
-    // 初始化联系人
-    if (!wx.getStorageSync('contacts')) {
-      wx.setStorageSync('contacts', [])
-    }
-
     // 初始化用户设置
     if (!wx.getStorageSync('userSettings')) {
       wx.setStorageSync('userSettings', {
@@ -162,10 +162,7 @@ App({
     // 清除游客相关数据
     const isGuest = wx.getStorageSync('isGuest')
     if (isGuest) {
-      wx.removeStorageSync('guestTodos')
-      wx.removeStorageSync('guestDocs')
-      wx.removeStorageSync('guestMeetings')
-      wx.removeStorageSync('guestContacts')
+      // 清除游客数据（如果有的话）
     }
   },
   

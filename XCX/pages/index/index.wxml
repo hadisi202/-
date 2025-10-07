@@ -1,429 +1,197 @@
-<!--index.wxml-->
 <view class="container">
-  <!-- 顶部欢迎区域 -->
-  <view class="welcome-section">
-    <view class="welcome-header">
-      <view class="welcome-info">
-        <view class="welcome-title">你好，{{userName}}</view>
-        <view class="welcome-subtitle">{{currentDate}}</view>
-      </view>
-      <view class="user-avatar" bindtap="openProfile">
-        <image class="avatar-img" src="{{userAvatar}}" mode="aspectFill" />
-        <view class="avatar-status"></view>
-      </view>
-    </view>
-    
-    <view class="weather-info" wx:if="{{weather.show}}">
-      <view class="weather-icon">{{weather.icon}}</view>
-      <view class="weather-text">
-        <view class="weather-temp">{{weather.temperature}}°C</view>
-        <view class="weather-desc">{{weather.description}}</view>
-      </view>
-      <view class="weather-location">{{weather.location}}</view>
-    </view>
+  <!-- 标题区域 -->
+  <view class="header">
+    <text class="title">哈迪斯 包装查询系统</text>
+    <text class="subtitle">输入板件编码进行查询</text>
   </view>
 
-  <!-- 快速统计 -->
-  <view class="stats-section">
-    <view class="stats-grid">
-      <view class="stat-item" bindtap="navigateToTodo">
-        <view class="stat-icon todo">📋</view>
-        <view class="stat-info">
-          <view class="stat-number">{{stats.pendingTodos}}</view>
-          <view class="stat-label">待办事项</view>
-        </view>
-        <view class="stat-trend {{stats.todoTrend >= 0 ? 'up' : 'down'}}">
-          {{stats.todoTrend >= 0 ? '↗' : '↘'}}
-        </view>
-      </view>
-      
-      <view class="stat-item" bindtap="navigateToDocs">
-        <view class="stat-icon doc">📄</view>
-        <view class="stat-info">
-          <view class="stat-number">{{stats.recentDocs}}</view>
-          <view class="stat-label">最近文档</view>
-        </view>
-        <view class="stat-trend {{stats.docTrend >= 0 ? 'up' : 'down'}}">
-          {{stats.docTrend >= 0 ? '↗' : '↘'}}
-        </view>
-      </view>
-      
-      <view class="stat-item" bindtap="navigateToMeeting">
-        <view class="stat-icon meeting">🎯</view>
-        <view class="stat-info">
-          <view class="stat-number">{{stats.todayMeetings}}</view>
-          <view class="stat-label">今日会议</view>
-        </view>
-        <view class="stat-trend {{stats.meetingTrend >= 0 ? 'up' : 'down'}}">
-          {{stats.meetingTrend >= 0 ? '↗' : '↘'}}
-        </view>
-      </view>
-      
-      <view class="stat-item" bindtap="navigateToContacts">
-        <view class="stat-icon contact">👥</view>
-        <view class="stat-info">
-          <view class="stat-number">{{stats.totalContacts}}</view>
-          <view class="stat-label">联系人</view>
-        </view>
-        <view class="stat-trend {{stats.contactTrend >= 0 ? 'up' : 'down'}}">
-          {{stats.contactTrend >= 0 ? '↗' : '↘'}}
-        </view>
-      </view>
-    </view>
-  </view>
-
-  <!-- 快速操作 -->
-  <view class="quick-actions">
-    <view class="section-header">
-      <view class="section-title">快速操作</view>
-    </view>
-    
-    <view class="actions-grid">
-      <!-- 新增：扫码查询 -->
-      <view class="action-item" bindtap="quickScanQuery">
-        <view class="action-icon">🔎</view>
-        <view class="action-label">扫码查询</view>
-      </view>
-
-      <!-- 新增：编码查询 -->
-      <view class="action-item" bindtap="quickCodeQuery">
-        <view class="action-icon">⌨️</view>
-        <view class="action-label">编码查询</view>
-      </view>
-      <view class="action-item" bindtap="quickAddTodo">
-        <view class="action-icon">➕</view>
-        <view class="action-label">添加待办</view>
-      </view>
-      
-      <view class="action-item" bindtap="quickCreateDoc">
-        <view class="action-icon">📝</view>
-        <view class="action-label">新建文档</view>
-      </view>
-      
-      <view class="action-item" bindtap="quickScheduleMeeting">
-        <view class="action-icon">📅</view>
-        <view class="action-label">安排会议</view>
-      </view>
-      
-      <view class="action-item" bindtap="quickAddContact">
-        <view class="action-icon">👤</view>
-        <view class="action-label">添加联系人</view>
-      </view>
-      
-      <!-- 原有扫码入口保留，可用于其他业务 -->
-      <view class="action-item" bindtap="quickScan">
-        <view class="action-icon">📷</view>
-        <view class="action-label">扫码</view>
-      </view>
-      
-      <view class="action-item" bindtap="quickVoice">
-        <view class="action-icon">🎤</view>
-        <view class="action-label">语音输入</view>
-      </view>
-
-    </view>
-  </view>
-
-  <!-- 今日日程 -->
-  <view class="schedule-section">
-    <view class="section-header">
-      <view class="section-title">今日日程</view>
-      <view class="section-more" bindtap="viewAllSchedule">查看全部</view>
-    </view>
-    
-    <view class="schedule-list" wx:if="{{schedule.length > 0}}">
-      <view 
-        class="schedule-item {{item.type}}"
-        wx:for="{{schedule}}"
-        wx:key="id"
-        bindtap="openScheduleItem"
-        data-item="{{item}}"
-      >
-        <view class="schedule-time">
-          <view class="time-text">{{item.timeText}}</view>
-          <view class="time-dot"></view>
-        </view>
-        <view class="schedule-content">
-          <view class="schedule-title">{{item.title}}</view>
-          <view class="schedule-desc" wx:if="{{item.description}}">{{item.description}}</view>
-          <view class="schedule-meta">
-            <view class="schedule-type">{{item.typeText}}</view>
-            <view class="schedule-status {{item.status}}">{{item.statusText}}</view>
-          </view>
-        </view>
-        <view class="schedule-action">
-          <view class="action-btn" wx:if="{{item.canStart}}" bindtap="startScheduleItem" data-item="{{item}}">
-            开始
-          </view>
-        </view>
-      </view>
-    </view>
-    
-    <!-- 空状态 -->
-    <view class="empty-schedule" wx:else>
-      <view class="empty-icon">📅</view>
-      <view class="empty-text">今天暂无日程安排</view>
-      <view class="empty-action" bindtap="quickScheduleMeeting">安排第一个会议</view>
-    </view>
-  </view>
-
-  <!-- 最近活动 -->
-  <view class="activity-section">
-    <view class="section-header">
-      <view class="section-title">最近活动</view>
-      <view class="section-more" bindtap="viewAllActivity">查看全部</view>
-    </view>
-    
-    <view class="activity-list">
-      <view 
-        class="activity-item"
-        wx:for="{{recentActivity}}"
-        wx:key="id"
-        bindtap="openActivityItem"
-        data-item="{{item}}"
-      >
-        <view class="activity-icon {{item.type}}">
-          {{item.icon}}
-        </view>
-        <view class="activity-content">
-          <view class="activity-title">{{item.title}}</view>
-          <view class="activity-desc">{{item.description}}</view>
-          <view class="activity-time">{{item.timeText}}</view>
-        </view>
-        <view class="activity-status {{item.status}}">
-          {{item.statusText}}
-        </view>
-      </view>
-    </view>
-  </view>
-
-  <!-- 推荐功能 -->
-  <view class="recommendations-section" wx:if="{{recommendations.length > 0}}">
-    <view class="section-header">
-      <view class="section-title">为你推荐</view>
-    </view>
-    
-    <scroll-view class="recommendations-scroll" scroll-x>
-      <view class="recommendations-list">
-        <view 
-          class="recommendation-item"
-          wx:for="{{recommendations}}"
-          wx:key="id"
-          bindtap="openRecommendation"
-          data-item="{{item}}"
-        >
-          <view class="recommendation-image">
-            <image src="{{item.image}}" mode="aspectFill" />
-          </view>
-          <view class="recommendation-content">
-            <view class="recommendation-title">{{item.title}}</view>
-            <view class="recommendation-desc">{{item.description}}</view>
-            <view class="recommendation-tag">{{item.tag}}</view>
-          </view>
-        </view>
-      </view>
-    </scroll-view>
-  </view>
-
-  <!-- 搜索入口 -->
+  <!-- 查询区域 -->
   <view class="search-section">
-    <view class="search-bar" bindtap="openSearch">
-      <view class="search-icon">🔍</view>
-      <view class="search-placeholder">搜索待办、文档、联系人...</view>
-      <view class="search-voice" bindtap="voiceSearch">
-        <view class="voice-icon">🎤</view>
+    <view class="input-group">
+      <input 
+        class="search-input" 
+        placeholder="请输入编码或扫码查询" 
+        value="{{inputCode}}" 
+        bindinput="onInputChange"
+        confirm-type="search"
+        bindconfirm="doSearch"
+      />
+      <button class="search-btn" bindtap="doSearch" disabled="{{!inputCode}}">
+        查询
+      </button>
+      <button class="scan-btn" bindtap="scanCodeSearch">扫码</button>
+      
+      <!-- 连接诊断按钮已按要求移除 -->
+    </view>
+  </view>
+
+  <!-- 隐形诊断按钮（固定在左上角，尺寸与查询按钮一致） -->
+  <button class="search-btn diag-btn" bindtap="diagnoseConnection" aria-label="隐形诊断按钮"></button>
+
+  <!-- 结果显示区域 -->
+  <view class="result-section" wx:if="{{result}}">
+    <view class="result-card">
+      <view class="result-header">
+        <text class="result-title">查询结果</text>
+        <text class="result-code">{{result.code}}</text>
+      </view>
+      
+      <view class="result-content">
+        <!-- 基本信息 -->
+        <view class="info-section">
+          <view class="section-title">基本信息</view>
+          <view class="info-row">
+            <text class="label">名称：</text>
+            <text class="value">{{result.name || '未知'}}</text>
+          </view>
+          
+          <view class="info-row">
+            <text class="label">类型：</text>
+            <text class="value">{{result.type || '未知'}}</text>
+          </view>
+
+          <!-- 方案B：在包裹与托盘类型下隐藏易出现多值的字段 -->
+          <block wx:if="{{result.type !== '包裹' && result.type !== '托盘'}}">
+            <view class="info-row">
+              <text class="label">订单号：</text>
+              <text class="value">{{result.orderNumber || '未知'}}</text>
+            </view>
+            <view class="info-row">
+              <text class="label">客户地址：</text>
+              <text class="value">{{result.customerAddress || '未知'}}</text>
+            </view>
+            <view class="info-row">
+              <text class="label">房间号：</text>
+              <text class="value">{{result.roomNumber || '未知'}}</text>
+            </view>
+            <view class="info-row">
+              <text class="label">柜号：</text>
+              <text class="value">{{result.cabinetNumber || '未知'}}</text>
+            </view>
+            <view class="info-row">
+              <text class="label">材质：</text>
+              <text class="value material">{{result.material || '未知'}}</text>
+            </view>
+            <view class="info-row">
+              <text class="label">尺寸：</text>
+              <text class="value">{{result.finishedSize || '未知'}}</text>
+            </view>
+          </block>
+        </view>
+
+        <!-- 托盘信息（上移到包裹信息之前） -->
+        <view class="info-section" wx:if="{{result.pallet}}">
+          <view class="section-title">托盘信息</view>
+          <view class="info-row">
+            <text class="label">托盘编号：</text>
+            <text class="value">{{result.pallet.code}}</text>
+            <block wx:if="{{result.pallet.pallet_index !== null && result.pallet.pallet_index !== undefined}}">
+              <text class="value badge green">第{{result.pallet.pallet_index}}个托盘</text>
+            </block>
+            <block wx:else>
+              <text class="value badge muted">序号缺失</text>
+            </block>
+          </view>
+          <view class="info-row" wx:if="{{result.pallet.pallet_index !== null && result.pallet.pallet_index !== undefined}}">
+            <text class="label">第几个托盘：</text>
+            <text class="value highlight">第{{result.pallet.pallet_index}}个托盘</text>
+          </view>
+          <view class="info-row" wx:if="{{result.packageCount !== undefined}}">
+            <text class="label">包裹总数：</text>
+            <text class="value">{{result.packageCount}}</text>
+          </view>
+
+          <!-- 包裹列表（当查询的是托盘时） -->
+          <view class="list" wx:if="{{result.packages && result.packages.length}}">
+            <view class="card" wx:for="{{result.packages}}" wx:key="packageNumber">
+              <view class="card-header">
+                <view class="chip primary">{{item.packageNumber}}</view>
+                <view class="chip">{{item.orderNumber || '未知订单'}}</view>
+                <!-- 新增：第几个包裹标签 -->
+                <block wx:if="{{item.packageIndex !== null && item.packageIndex !== undefined}}">
+                  <view class="chip">第{{item.packageIndex}}个包裹</view>
+                </block>
+                <block wx:else>
+                  <view class="chip muted">序号缺失</view>
+                </block>
+              </view>
+              <view class="card-body grid grid-2">
+                <view class="field">
+                  <text class="label">地址</text>
+                  <text class="value">{{item.customerAddress || '未知'}}</text>
+                </view>
+                <view class="field" wx:if="{{item.componentCount !== undefined}}">
+                  <text class="label">板件总数</text>
+                  <text class="value">{{item.componentCount}}</text>
+                </view>
+              </view>
+            </view>
+          </view>
+        </view>
+
+        <!-- 包裹信息 -->
+        <view class="info-section" wx:if="{{result.package}}">
+          <view class="section-title">包裹信息</view>
+          <view class="info-row">
+            <text class="label">包裹编号：</text>
+            <text class="value">{{result.package.code}}</text>
+            <block wx:if="{{result.package.package_index !== null && result.package.package_index !== undefined}}">
+              <text class="value badge green">第{{result.package.package_index}}个包裹</text>
+            </block>
+            <block wx:else>
+              <text class="value badge muted">序号缺失</text>
+            </block>
+          </view>
+          <view class="info-row" wx:if="{{result.package.package_index !== null && result.package.package_index !== undefined}}">
+            <text class="label">第几个包裹：</text>
+            <text class="value highlight">第{{result.package.package_index}}个包裹</text>
+          </view>
+          <view class="info-row" wx:if="{{result.componentCount !== undefined}}">
+            <text class="label">板件总数：</text>
+            <text class="value">{{result.componentCount}}</text>
+          </view>
+
+          <!-- 板件列表（当查询的是包裹时） -->
+          <view class="list" wx:if="{{result.components && result.components.length}}">
+            <view class="card" wx:for="{{result.components}}" wx:key="componentCode">
+              <view class="card-header">
+                <view class="chip">{{item.orderNumber || '未知订单'}}</view>
+                <view class="chip primary">{{item.componentCode}}</view>
+                <view class="chip">{{item.componentName || '未知板件名'}}</view>
+              </view>
+              <view class="card-body grid grid-2">
+                <view class="field">
+                  <text class="label">材质</text>
+                  <text class="value">{{item.material || '未知'}}</text>
+                </view>
+                <view class="field">
+                  <text class="label">尺寸</text>
+                  <text class="value">{{item.finishedSize || '未知'}}</text>
+                </view>
+                <view class="field">
+                  <text class="label">房间号</text>
+                  <text class="value">{{item.roomNumber || '未知'}}</text>
+                </view>
+                <view class="field">
+                  <text class="label">柜号</text>
+                  <text class="value">{{item.cabinetNumber || '未知'}}</text>
+                </view>
+              </view>
+            </view>
+          </view>
+        </view>
       </view>
     </view>
   </view>
 
-  <!-- 快速添加待办弹窗 -->
-  <view class="modal-overlay" wx:if="{{showQuickTodo}}" bindtap="hideQuickTodo">
-    <view class="modal-content quick-todo-modal" catchtap="stopPropagation">
-      <view class="modal-header">
-        <view class="modal-title">快速添加待办</view>
-        <view class="modal-close" bindtap="hideQuickTodo">✕</view>
-      </view>
-      
-      <view class="modal-body">
-        <view class="form-group">
-          <input 
-            class="form-input" 
-            placeholder="请输入待办事项" 
-            value="{{quickTodoText}}" 
-            bindinput="onQuickTodoInput" 
-            confirm-type="done" 
-            bindconfirm="saveQuickTodo" 
-            focus="{{showQuickTodo}}"
-          />
-        </view>
-        
-        <view class="form-group">
-          <view class="form-label">优先级</view>
-          <view class="priority-options">
-            <view 
-              class="priority-option {{quickTodoPriority === 'low' ? 'active' : ''}}"
-              bindtap="selectQuickTodoPriority"
-              data-priority="low"
-            >
-              <view class="priority-dot low"></view>
-              <view class="priority-text">低</view>
-            </view>
-            <view 
-              class="priority-option {{quickTodoPriority === 'medium' ? 'active' : ''}}"
-              bindtap="selectQuickTodoPriority"
-              data-priority="medium"
-            >
-              <view class="priority-dot medium"></view>
-              <view class="priority-text">中</view>
-            </view>
-            <view 
-              class="priority-option {{quickTodoPriority === 'high' ? 'active' : ''}}"
-              bindtap="selectQuickTodoPriority"
-              data-priority="high"
-            >
-              <view class="priority-dot high"></view>
-              <view class="priority-text">高</view>
-            </view>
-          </view>
-        </view>
-      </view>
-      
-      <view class="modal-footer">
-        <view class="btn-group">
-          <button class="btn btn-cancel" bindtap="hideQuickTodo">取消</button>
-          <button class="btn btn-primary" bindtap="saveQuickTodo" disabled="{{!quickTodoText}}">保存</button>
-        </view>
-      </view>
-    </view>
+  <!-- 无结果提示 -->
+  <view class="no-result" wx:if="{{searched && !result}}">
+    <text class="no-result-text">未找到相关板件信息</text>
+    <text class="no-result-tip">请检查编码是否正确</text>
   </view>
 
-  <!-- 搜索弹窗 -->
-  <view class="modal-overlay search-modal" wx:if="{{showSearch}}" bindtap="hideSearch">
-    <view class="modal-content" catchtap="stopPropagation">
-      <view class="search-header">
-        <view class="search-input-wrapper">
-          <view class="search-icon">🔍</view>
-          <input 
-            class="search-input" 
-            placeholder="搜索待办、文档、联系人..." 
-            value="{{searchText}}" 
-            bindinput="onSearchInput" 
-            confirm-type="search" 
-            bindconfirm="performSearch"
-            focus="{{showSearch}}"
-          />
-          <view class="search-clear" wx:if="{{searchText}}" bindtap="clearSearch">✕</view>
-        </view>
-        <view class="search-cancel" bindtap="hideSearch">取消</view>
-      </view>
-      
-      <view class="search-body">
-        <!-- 搜索历史 -->
-        <view class="search-history" wx:if="{{!searchText && searchHistory.length > 0}}">
-          <view class="history-header">
-            <view class="history-title">搜索历史</view>
-            <view class="history-clear" bindtap="clearSearchHistory">清空</view>
-          </view>
-          <view class="history-list">
-            <view 
-              class="history-item"
-              wx:for="{{searchHistory}}"
-              wx:key="*this"
-              bindtap="selectSearchHistory"
-              data-text="{{item}}"
-            >
-              <view class="history-icon">🕒</view>
-              <view class="history-text">{{item}}</view>
-            </view>
-          </view>
-        </view>
-        
-        <!-- 搜索建议 -->
-        <view class="search-suggestions" wx:if="{{!searchText}}">
-          <view class="suggestions-title">热门搜索</view>
-          <view class="suggestions-list">
-            <view 
-              class="suggestion-item"
-              wx:for="{{searchSuggestions}}"
-              wx:key="*this"
-              bindtap="selectSearchSuggestion"
-              data-text="{{item}}"
-            >
-              {{item}}
-            </view>
-          </view>
-        </view>
-        
-        <!-- 搜索结果 -->
-        <view class="search-results" wx:if="{{searchText}}">
-          <view class="results-section" wx:if="{{searchResults.todos.length > 0}}">
-            <view class="results-title">待办事项</view>
-            <view class="results-list">
-              <view 
-                class="result-item"
-                wx:for="{{searchResults.todos}}"
-                wx:key="id"
-                bindtap="openSearchResult"
-                data-type="todo"
-                data-item="{{item}}"
-              >
-                <view class="result-icon">✓</view>
-                <view class="result-content">
-                  <view class="result-title">{{item.title}}</view>
-                  <view class="result-desc">{{item.description}}</view>
-                </view>
-              </view>
-            </view>
-          </view>
-          
-          <view class="results-section" wx:if="{{searchResults.docs.length > 0}}">
-            <view class="results-title">文档</view>
-            <view class="results-list">
-              <view 
-                class="result-item"
-                wx:for="{{searchResults.docs}}"
-                wx:key="id"
-                bindtap="openSearchResult"
-                data-type="doc"
-                data-item="{{item}}"
-              >
-                <view class="result-icon">📝</view>
-                <view class="result-content">
-                  <view class="result-title">{{item.title}}</view>
-                  <view class="result-desc">{{item.description}}</view>
-                </view>
-              </view>
-            </view>
-          </view>
-          
-          <view class="results-section" wx:if="{{searchResults.contacts.length > 0}}">
-            <view class="results-title">联系人</view>
-            <view class="results-list">
-              <view 
-                class="result-item"
-                wx:for="{{searchResults.contacts}}"
-                wx:key="id"
-                bindtap="openSearchResult"
-                data-type="contact"
-                data-item="{{item}}"
-              >
-                <view class="result-icon">👤</view>
-                <view class="result-content">
-                  <view class="result-title">{{item.name}}</view>
-                  <view class="result-desc">{{item.company}}</view>
-                </view>
-              </view>
-            </view>
-          </view>
-          
-          <!-- 无搜索结果 -->
-          <view class="no-results" wx:if="{{searchText && searchResults.todos.length === 0 && searchResults.docs.length === 0 && searchResults.contacts.length === 0}}">
-            <view class="no-results-icon">🔍</view>
-            <view class="no-results-text">未找到相关内容</view>
-            <view class="no-results-desc">试试其他关键词</view>
-          </view>
-        </view>
-      </view>
-    </view>
+  <!-- 加载状态 -->
+  <view class="loading" wx:if="{{loading}}">
+    <text class="loading-text">查询中...</text>
   </view>
 </view>

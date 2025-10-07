@@ -1,57 +1,13 @@
 {
   "pages": [
-    "pages/index/index",
-    "pages/query/query",
-    "pages/todo/todo",
-    "pages/docs/docs",
-    "pages/meeting/meeting",
-    "pages/contacts/contacts",
-    "pages/dashboard/dashboard"
+    "pages/index/index"
   ],
   "window": {
     "backgroundTextStyle": "light",
-    "navigationBarBackgroundColor": "#fff",
-    "navigationBarTitleText": "便捷办公助手",
-    "navigationBarTextStyle": "black",
-    "backgroundColor": "#f8f8f8"
-  },
-  "tabBar": {
-    "color": "#7A7E83",
-    "selectedColor": "#3cc51f",
-    "borderStyle": "black",
-    "backgroundColor": "#ffffff",
-    "list": [
-      {
-        "pagePath": "pages/index/index",
-        "iconPath": "images/home.png",
-        "selectedIconPath": "images/home-active.png",
-        "text": "首页"
-      },
-      {
-        "pagePath": "pages/todo/todo",
-        "iconPath": "images/todo.png",
-        "selectedIconPath": "images/todo-active.png",
-        "text": "待办"
-      },
-      {
-        "pagePath": "pages/docs/docs",
-        "iconPath": "images/docs.png",
-        "selectedIconPath": "images/docs-active.png",
-        "text": "文档"
-      },
-      {
-        "pagePath": "pages/meeting/meeting",
-        "iconPath": "images/meeting.png",
-        "selectedIconPath": "images/meeting-active.png",
-        "text": "会议"
-      },
-      {
-        "pagePath": "pages/contacts/contacts",
-        "iconPath": "images/contacts.png",
-        "selectedIconPath": "images/contacts-active.png",
-        "text": "通讯录"
-      }
-    ]
+    "navigationBarBackgroundColor": "#2196F3",
+    "navigationBarTitleText": "板件查询系统",
+    "navigationBarTextStyle": "white",
+    "backgroundColor": "#f5f5f5"
   },
   "lazyCodeLoading": "requiredComponents",
   "permission": {
