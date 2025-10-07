@@ -149,7 +149,11 @@ def post_json(base_url: str, path: str, api_key: str, payload: Dict, verify: boo
     body = dict(payload)
     body['path'] = path if path.startswith('/') else f'/{path}'
     _log(f"POST {url} path={body['path']} items={(len(body.get('items', [])) if isinstance(body.get('items'), list) else 0)} verify={verify}")
-    resp = requests.post(url, headers=headers, data=json.dumps(body), timeout=60, verify=verify)
+    try:
+        resp = requests.post(url, headers=headers, json=body, timeout=60, verify=verify)
+    except requests.exceptions.RequestException as e:
+        _log(f"ERR requests {e.__class__.__name__}: {e}")
+        return {"ok": False, "error": str(e), "type": e.__class__.__name__}
     try:
         out = resp.json()
         _log(f"RESP {resp.status_code} len={len(json.dumps(out, ensure_ascii=False))}")
