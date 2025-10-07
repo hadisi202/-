@@ -1095,6 +1095,10 @@ class ScanPackaging(QWidget):
         current_layout.addWidget(QLabel("板件数量:"), 2, 0)
         self.current_count_label = QLabel("0")
         current_layout.addWidget(self.current_count_label, 2, 1)
+
+        current_layout.addWidget(QLabel("打包方式:"), 3, 0)
+        self.current_packing_method_label = QLabel("-")
+        current_layout.addWidget(self.current_packing_method_label, 3, 1)
         
         # 顶部信息区：左为当前包装，右为订单统计
         current_info_layout = QHBoxLayout()
@@ -1270,6 +1274,14 @@ class ScanPackaging(QWidget):
                 
                 QMessageBox.information(self, "成功", f"包裹 {package_number} 已删除，板件已还原为未打包状态")
                 self.load_active_packages()
+                # 云端删除同步：包裹
+                try:
+                    from real_time_cloud_sync import get_sync_service
+                    svc = getattr(self, 'cloud_sync_service', None) or get_sync_service()
+                    if package_number:
+                        svc.trigger_sync('delete_packages', {'items': [{'package_number': package_number}]})
+                except Exception as e:
+                    print(f"触发云端删除包裹失败: {e}")
                 
             except Exception as e:
                 QMessageBox.critical(self, "错误", f"删除包裹失败：\n{str(e)}")
@@ -1472,7 +1484,7 @@ class ScanPackaging(QWidget):
             FROM packages p
             LEFT JOIN orders o ON p.order_id = o.id
             LEFT JOIN components c ON p.id = c.package_id
-            WHERE p.status IN ('open', 'completed') AND p.order_id = ?
+            WHERE p.status IN ('open', 'completed', 'sealed') AND p.order_id = ?
             GROUP BY p.id
             ORDER BY p.created_at DESC
         ''', (self.current_order_id,))
@@ -1595,7 +1607,7 @@ class ScanPackaging(QWidget):
         conn = db.get_connection()
         cursor = conn.cursor()
         cursor.execute('''
-            SELECT p.package_number, o.order_number, p.status
+            SELECT p.package_number, o.order_number, p.status, p.packing_method
             FROM packages p
             LEFT JOIN orders o ON p.order_id = o.id
             WHERE p.id = ?
@@ -1605,6 +1617,15 @@ class ScanPackaging(QWidget):
         if package:
             self.current_package_label.setText(package[0])
             self.current_order_label.setText(package[1] or '')
+            # 显示打包方式（中文：房间/柜号/混包），兼容旧数据
+            pm_map = {
+                'by_room': '房间',
+                'by_cabinet': '柜号',
+                'mixed': '混包',
+                'manual': '混包'
+            }
+            pm_value = package[3] if len(package) > 3 else None
+            self.current_packing_method_label.setText(pm_map.get(pm_value, pm_value if pm_value else '-'))
             
             package_status = package[2]
             is_open = package_status == 'open'
@@ -1638,6 +1659,9 @@ class ScanPackaging(QWidget):
         if not self.current_package_id:
             self.current_components_table.setRowCount(0)
             self.current_count_label.setText("0")
+            # 重置打包方式显示
+            if hasattr(self, 'current_packing_method_label'):
+                self.current_packing_method_label.setText("-")
             return
         
         conn = db.get_connection()
@@ -1760,6 +1784,20 @@ class ScanPackaging(QWidget):
                             pass
                         return
             elif current_pm == 'by_cabinet':
+                # 同时校验房间号与柜号一致性
+                # 先校验房间号一致
+                cursor.execute('SELECT DISTINCT room_number FROM components WHERE package_id = ?', (self.current_package_id,))
+                rooms = [r[0] for r in cursor.fetchall() if r and r[0]]
+                if rooms:
+                    base_room = rooms[0]
+                    if component_room and component_room != base_room:
+                        QMessageBox.warning(self, "警告", f"当前包装为按柜号分组，房间号不一致：{base_room} vs {component_room}")
+                        try:
+                            voice_speak("房间号不一致，请检查")
+                        except Exception:
+                            pass
+                        return
+                # 再校验柜号一致
                 cursor.execute('SELECT DISTINCT cabinet_number FROM components WHERE package_id = ?', (self.current_package_id,))
                 cabinets = [c[0] for c in cursor.fetchall() if c and c[0]]
                 if cabinets:
@@ -2755,11 +2793,17 @@ class PendingComponentsDialog(QDialog):
             order_result = cursor.fetchone()
             order_id = order_result[0] if order_result else None
             
-            # 创建新包裹
+            # 计算包裹序号（按订单内补位规则）
+            try:
+                next_index = db.get_next_package_index(order_id)
+            except Exception:
+                next_index = None
+            
+            # 创建新包裹（打包方式统一为“mixed”），使用数据库时间戳
             cursor.execute('''
-                INSERT INTO packages (package_number, order_id, packing_method, status, created_at, is_manual)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ''', (package_number, order_id, 'manual', 'open', datetime.now(), 1))
+                INSERT INTO packages (package_number, order_id, package_index, packing_method, status, created_at, is_manual)
+                VALUES (?, ?, ?, ?, 'open', CURRENT_TIMESTAMP, ?)
+            ''', (package_number, order_id, next_index, 'mixed', 1))
             
             package_id = cursor.lastrowid
             
@@ -2770,6 +2814,13 @@ class PendingComponentsDialog(QDialog):
                     SET package_id = ?, scanned_at = ?
                     WHERE id = ? AND package_id IS NULL
                 ''', (package_id, datetime.now(), component_id))
+            
+            # 更新包裹的板件数量统计字段
+            cursor.execute('''
+                UPDATE packages SET component_count = (
+                    SELECT COUNT(*) FROM components WHERE package_id = ?
+                ) WHERE id = ?
+            ''', (package_id, package_id))
             
             conn.commit()
             

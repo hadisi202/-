@@ -6,8 +6,8 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
                              QLineEdit, QTextEdit, QComboBox, QMessageBox,
                              QDialog, QDialogButtonBox, QGroupBox, QCheckBox,
                              QDateEdit, QTabWidget, QHeaderView, QFileDialog,
-                             QProgressDialog, QApplication, QCompleter)
-from PyQt5.QtCore import Qt, QDate, QThread, pyqtSignal, QStringListModel
+                             QProgressDialog, QApplication, QCompleter, QToolTip)
+from PyQt5.QtCore import Qt, QDate, QThread, pyqtSignal, QStringListModel, QRect
 from PyQt5.QtGui import QFont, QPainter, QColor
 import pandas as pd
 from openpyxl import Workbook
@@ -216,7 +216,8 @@ class ExportWorker(QThread):
                 COUNT(DISTINCT c.id) as component_count,
                 GROUP_CONCAT(DISTINCT o.customer_name) as customers
             FROM pallets pal
-            LEFT JOIN packages p ON p.pallet_id = pal.id
+            LEFT JOIN pallet_packages pp ON pp.pallet_id = pal.id
+            LEFT JOIN packages p ON p.id = pp.package_id
             LEFT JOIN components c ON c.package_id = p.id
             LEFT JOIN orders o ON p.order_id = o.id
             WHERE 1=1
@@ -263,7 +264,8 @@ class ExportWorker(QThread):
                 GROUP_CONCAT(c.component_name, '; ') as component_list,
                 p.created_at as package_created_at
             FROM pallets pal
-            JOIN packages p ON p.pallet_id = pal.id
+            JOIN pallet_packages pp ON pp.pallet_id = pal.id
+            JOIN packages p ON p.id = pp.package_id
             LEFT JOIN orders o ON p.order_id = o.id
             LEFT JOIN components c ON c.package_id = p.id
             GROUP BY pal.id, p.id
@@ -492,7 +494,8 @@ class ExportWorker(QThread):
                 c.room_number AS 房间,
                 c.cabinet_number AS 柜号
             FROM pallets pal
-            JOIN packages p ON p.pallet_id = pal.id
+            JOIN pallet_packages pp ON pp.pallet_id = pal.id
+            JOIN packages p ON p.id = pp.package_id
             JOIN components c ON c.package_id = p.id
             LEFT JOIN orders o ON p.order_id = o.id
             WHERE 1=1
@@ -918,6 +921,153 @@ class BarChartWidget(QWidget):
             painter.drawText(legend_x + 18, legend_y + 11, str(label))
             legend_x += 120
 
+class DailyDualBarChartWidget(QWidget):
+    """近30天每日打包双柱图（包裹数/板件数）"""
+    def __init__(self, title="", parent=None):
+        super().__init__(parent)
+        self.title = title
+        self.data = []  # [(date_str, packages_count, components_count)]
+        self.setMinimumHeight(220)
+        # 颜色：包裹-蓝，板件-橙
+        self.color_packages = QColor(33, 150, 243)
+        self.color_components = QColor(255, 152, 0)
+        # 开启鼠标追踪与命中区域
+        self.setMouseTracking(True)
+        self.hit_regions = []  # [{'rect': QRect, 'kind': 'pkg'|'comp', 'date': str, 'pkg': int, 'comp': int}]
+
+    def set_data(self, items):
+        self.data = items or []
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        rect = self.rect()
+
+        margin_l, margin_r, margin_t, margin_b = 40, 20, 28, 30
+        chart_rect = rect.adjusted(margin_l, margin_t, -margin_r, -margin_b)
+
+        # 标题
+        painter.setPen(Qt.black)
+        title_font = QFont()
+        title_font.setPointSize(11)
+        title_font.setBold(True)
+        painter.setFont(title_font)
+        painter.drawText(rect.adjusted(12, 6, -12, -6), Qt.AlignLeft | Qt.AlignTop, self.title)
+
+        if not self.data:
+            painter.drawText(rect, Qt.AlignCenter, "无数据")
+            return
+
+        # 最大值确定
+        max_val = max(max(p, c) for _, p, c in self.data) if self.data else 0
+        if max_val <= 0:
+            painter.drawText(rect, Qt.AlignCenter, "无数据")
+            return
+
+        # 计算柱宽与间距
+        n = len(self.data)
+        group_gap = 6
+        bar_gap = 3
+        # 每组两根柱
+        total_bar_width = chart_rect.width() / max(1, n)
+        bar_width = max(2, int((total_bar_width - group_gap) / 2 - bar_gap))
+
+        # 坐标轴与网格
+        painter.setPen(QColor(200, 200, 200))
+        # 横向网格 5 档
+        grid_count = 5
+        painter.setFont(QFont("", 8))
+        for i in range(grid_count + 1):
+            y = chart_rect.bottom() - int(chart_rect.height() * i / grid_count)
+            painter.drawLine(chart_rect.left(), y, chart_rect.right(), y)
+            # Y轴刻度
+            val = int(max_val * i / grid_count)
+            painter.setPen(Qt.black)
+            painter.drawText(chart_rect.left() - 36, y - 2, f"{val}")
+            painter.setPen(QColor(200, 200, 200))
+
+        # 绘制柱状
+        x = chart_rect.left()
+        painter.setFont(QFont("", 8))
+        label_step = max(1, int(n / 10))  # 避免标签过密
+        # 重置命中区域
+        self.hit_regions = []
+        for idx, (date_str, pkg_cnt, comp_cnt) in enumerate(self.data):
+            # 包裹柱
+            pkg_h = int(chart_rect.height() * pkg_cnt / max_val)
+            pkg_x = int(x + ((total_bar_width - group_gap) / 2 - bar_width - bar_gap))
+            pkg_y = int(chart_rect.bottom() - pkg_h)
+            painter.fillRect(pkg_x, pkg_y, int(bar_width), int(pkg_h), self.color_packages)
+            painter.setPen(Qt.black)
+            painter.drawRect(pkg_x, pkg_y, int(bar_width), int(pkg_h))
+            # 命中区域与数值标注（包裹）
+            pkg_rect = QRect(pkg_x, pkg_y, int(bar_width), int(pkg_h))
+            self.hit_regions.append({'rect': pkg_rect, 'kind': 'pkg', 'date': date_str, 'pkg': int(pkg_cnt), 'comp': int(comp_cnt)})
+            if pkg_cnt > 0:
+                label_y = max(chart_rect.top() + 12, pkg_y - 2)
+                painter.setPen(Qt.darkBlue)
+                painter.drawText(pkg_x, label_y, int(bar_width), 14, Qt.AlignHCenter | Qt.AlignBottom, str(int(pkg_cnt)))
+
+            # 板件柱
+            comp_h = int(chart_rect.height() * comp_cnt / max_val)
+            comp_x = int(x + ((total_bar_width - group_gap) / 2 + bar_gap))
+            comp_y = int(chart_rect.bottom() - comp_h)
+            painter.fillRect(comp_x, comp_y, int(bar_width), int(comp_h), self.color_components)
+            painter.setPen(Qt.black)
+            painter.drawRect(comp_x, comp_y, int(bar_width), int(comp_h))
+            # 命中区域与数值标注（板件）
+            comp_rect = QRect(comp_x, comp_y, int(bar_width), int(comp_h))
+            self.hit_regions.append({'rect': comp_rect, 'kind': 'comp', 'date': date_str, 'pkg': int(pkg_cnt), 'comp': int(comp_cnt)})
+            if comp_cnt > 0:
+                label_y2 = max(chart_rect.top() + 12, comp_y - 2)
+                painter.setPen(Qt.darkRed)
+                painter.drawText(comp_x, label_y2, int(bar_width), 14, Qt.AlignHCenter | Qt.AlignBottom, str(int(comp_cnt)))
+
+            # X轴日期标签（斜体倾斜）
+            if idx % label_step == 0:
+                painter.save()
+                painter.translate(int(x + total_bar_width / 2), chart_rect.bottom() + 12)
+                painter.rotate(-35)
+                painter.setPen(Qt.darkGray)
+                painter.drawText(-24, 0, date_str[-5:])  # 仅显示 MM-DD
+                painter.restore()
+
+            x += total_bar_width
+
+        # 图例
+        legend_x = chart_rect.left()
+        legend_y = rect.bottom() - margin_b + 6
+        painter.fillRect(legend_x, legend_y, 12, 12, self.color_packages)
+        painter.drawRect(legend_x, legend_y, 12, 12)
+        painter.drawText(legend_x + 16, legend_y + 10, "包裹数")
+
+        legend_x += 80
+        painter.fillRect(legend_x, legend_y, 12, 12, self.color_components)
+        painter.drawRect(legend_x, legend_y, 12, 12)
+        painter.drawText(legend_x + 16, legend_y + 10, "板件数")
+
+    def mouseMoveEvent(self, event):
+        # 显示悬浮提示
+        pos = event.pos()
+        for item in self.hit_regions:
+            if item['rect'].contains(pos):
+                date = item['date']
+                pkg = item['pkg']
+                comp = item['comp']
+                if item['kind'] == 'pkg':
+                    tip = f"{date}\n包裹: {pkg}"
+                else:
+                    tip = f"{date}\n板件: {comp}"
+                QToolTip.showText(self.mapToGlobal(pos), tip, self)
+                break
+        else:
+            QToolTip.hideText()
+        super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event):
+        QToolTip.hideText()
+        super().leaveEvent(event)
+
 class Reports(QWidget):
     """报表统计模块"""
     
@@ -997,21 +1147,44 @@ class Reports(QWidget):
         
         layout.addWidget(stats_frame)
         
-        # 图表展示区域
+        # 图表展示区域（改为最近30天每日打包双柱图）
         charts_frame = QGroupBox("数据分析")
-        charts_layout = QHBoxLayout(charts_frame)
-        
-        # 包装状态分布图
-        self.packages_chart = BarChartWidget("包装状态分布")
-        charts_layout.addWidget(self.packages_chart)
-        
-        # 托盘类型分布图
-        self.pallets_chart = BarChartWidget("托盘类型分布")
-        charts_layout.addWidget(self.pallets_chart)
-        
-        # 订单进度图
-        self.orders_progress_chart = BarChartWidget("订单完成进度")
-        charts_layout.addWidget(self.orders_progress_chart)
+        charts_layout = QVBoxLayout(charts_frame)
+
+        # 筛选工具条（订单号与日期范围）
+        filters_layout = QHBoxLayout()
+        filters_layout.addWidget(QLabel("订单号："))
+        self.chart_order_input = QLineEdit()
+        self.chart_order_input.setPlaceholderText("支持模糊查询，例如 2025-01")
+        filters_layout.addWidget(self.chart_order_input)
+
+        filters_layout.addWidget(QLabel("开始日期："))
+        self.chart_start_date_edit = QDateEdit()
+        self.chart_start_date_edit.setCalendarPopup(True)
+        self.chart_start_date_edit.setDisplayFormat("yyyy-MM-dd")
+        filters_layout.addWidget(self.chart_start_date_edit)
+
+        filters_layout.addWidget(QLabel("结束日期："))
+        self.chart_end_date_edit = QDateEdit()
+        self.chart_end_date_edit.setCalendarPopup(True)
+        self.chart_end_date_edit.setDisplayFormat("yyyy-MM-dd")
+        filters_layout.addWidget(self.chart_end_date_edit)
+
+        # 默认近30天
+        try:
+            self.chart_end_date_edit.setDate(QDate.currentDate())
+            self.chart_start_date_edit.setDate(QDate.currentDate().addDays(-29))
+        except Exception:
+            pass
+
+        self.apply_chart_filter_btn = QPushButton("应用筛选")
+        self.apply_chart_filter_btn.clicked.connect(self.load_statistics)
+        filters_layout.addWidget(self.apply_chart_filter_btn)
+
+        charts_layout.addLayout(filters_layout)
+
+        self.daily_dual_chart = DailyDualBarChartWidget("最近30天打包趋势（包裹/板件）")
+        charts_layout.addWidget(self.daily_dual_chart)
         
         layout.addWidget(charts_frame)
         
@@ -1304,59 +1477,109 @@ class Reports(QWidget):
         sealed_pallets = cursor.fetchone()[0]
         self.sealed_pallets_label.setText(str(sealed_pallets))
         
-        # 图表数据
-        # 包装状态分布
+        # 图表数据（改为最近30天每日包裹数与板件数双柱图）
+        # 构造日期范围：优先使用筛选框，其次默认近30天（含今天）
+        end_date_dt = datetime.now().date()
+        start_date_dt = end_date_dt - timedelta(days=29)
+        try:
+            if hasattr(self, 'chart_end_date_edit') and self.chart_end_date_edit.date().isValid():
+                end_date_dt = self.chart_end_date_edit.date().toPyDate()
+            if hasattr(self, 'chart_start_date_edit') and self.chart_start_date_edit.date().isValid():
+                start_date_dt = self.chart_start_date_edit.date().toPyDate()
+        except Exception:
+            pass
+        # 保证起止顺序正确
+        if start_date_dt > end_date_dt:
+            start_date_dt, end_date_dt = end_date_dt, start_date_dt
+        date_list = [(start_date_dt + timedelta(days=i)).strftime('%Y-%m-%d') for i in range((end_date_dt - start_date_dt).days + 1)]
+
+        # 订单号筛选（优先使用 selected_order_id，否则使用模糊订单号）
+        order_like = None
+        if not self.selected_order_id and hasattr(self, 'chart_order_input'):
+            t = (self.chart_order_input.text() or '').strip()
+            if t:
+                order_like = f"%{t}%"
+
+        # 统计每日包裹创建数与每日打包板件数
+        # 包裹以 packages.created_at 计数
         if self.selected_order_id:
             cursor.execute('''
-                SELECT status, COUNT(*) 
-                FROM packages 
-                WHERE order_id = ? 
-                GROUP BY status
-            ''', (self.selected_order_id,))
+                SELECT DATE(p.created_at) AS d, COUNT(*)
+                FROM packages p
+                WHERE p.order_id = ? AND DATE(p.created_at) BETWEEN ? AND ?
+                GROUP BY DATE(p.created_at)
+            ''', (self.selected_order_id, start_date_dt.strftime('%Y-%m-%d'), end_date_dt.strftime('%Y-%m-%d')))
+        elif order_like:
+            cursor.execute('''
+                SELECT DATE(p.created_at) AS d, COUNT(*)
+                FROM packages p
+                LEFT JOIN orders o ON o.id = p.order_id
+                WHERE o.order_number LIKE ? AND DATE(p.created_at) BETWEEN ? AND ?
+                GROUP BY DATE(p.created_at)
+            ''', (order_like, start_date_dt.strftime('%Y-%m-%d'), end_date_dt.strftime('%Y-%m-%d')))
         else:
-            cursor.execute("SELECT status, COUNT(*) FROM packages GROUP BY status")
-        package_status_data = [(self._map_package_status(status), count) for status, count in cursor.fetchall()]
-        self.packages_chart.set_data(package_status_data)
-        
-        # 托盘类型分布
+            cursor.execute('''
+                SELECT DATE(created_at) AS d, COUNT(*)
+                FROM packages
+                WHERE DATE(created_at) BETWEEN ? AND ?
+                GROUP BY DATE(created_at)
+            ''', (start_date_dt.strftime('%Y-%m-%d'), end_date_dt.strftime('%Y-%m-%d')))
+        pkg_daily = {d: cnt for d, cnt in cursor.fetchall()}
+
+        # 板件以 components.scanned_at 或 updated_at 作为“打包”时间；若无则使用 created_at
         if self.selected_order_id:
             cursor.execute('''
-                SELECT pal.pallet_type, COUNT(DISTINCT pal.id)
-                FROM pallets pal
-                LEFT JOIN pallet_packages pp ON pp.pallet_id = pal.id
-                LEFT JOIN packages p ON pp.package_id = p.id
-                WHERE p.order_id = ?
-                GROUP BY pal.pallet_type
-            ''', (self.selected_order_id,))
-        else:
-            cursor.execute("SELECT pallet_type, COUNT(*) FROM pallets GROUP BY pallet_type")
-        pallet_type_data = [(self._map_pallet_type(ptype), count) for ptype, count in cursor.fetchall()]
-        self.pallets_chart.set_data(pallet_type_data)
-        
-        # 订单完成进度
-        if self.selected_order_id:
+                SELECT DATE(
+                    CASE 
+                        WHEN scanned_at IS NOT NULL THEN scanned_at
+                        WHEN updated_at IS NOT NULL THEN updated_at
+                        ELSE created_at
+                    END
+                ) AS d,
+                COUNT(*)
+                FROM components c
+                WHERE c.package_id IS NOT NULL AND c.order_id = ?
+                  AND DATE(CASE WHEN scanned_at IS NOT NULL THEN scanned_at WHEN updated_at IS NOT NULL THEN updated_at ELSE created_at END) BETWEEN ? AND ?
+                GROUP BY d
+            ''', (self.selected_order_id, start_date_dt.strftime('%Y-%m-%d'), end_date_dt.strftime('%Y-%m-%d')))
+        elif order_like:
             cursor.execute('''
-                SELECT 
-                    o.order_number,
-                    ROUND(CAST(COUNT(CASE WHEN c.package_id IS NOT NULL THEN 1 END) AS FLOAT) / COUNT(c.id) * 100, 1) as progress
-                FROM orders o
-                LEFT JOIN components c ON c.order_id = o.id
-                WHERE o.id = ?
-                GROUP BY o.id
-            ''', (self.selected_order_id,))
+                SELECT DATE(
+                    CASE 
+                        WHEN c.scanned_at IS NOT NULL THEN c.scanned_at
+                        WHEN c.updated_at IS NOT NULL THEN c.updated_at
+                        ELSE c.created_at
+                    END
+                ) AS d,
+                COUNT(*)
+                FROM components c
+                LEFT JOIN orders o ON o.id = c.order_id
+                WHERE c.package_id IS NOT NULL AND o.order_number LIKE ?
+                  AND DATE(CASE WHEN c.scanned_at IS NOT NULL THEN c.scanned_at WHEN c.updated_at IS NOT NULL THEN c.updated_at ELSE c.created_at END) BETWEEN ? AND ?
+                GROUP BY d
+            ''', (order_like, start_date_dt.strftime('%Y-%m-%d'), end_date_dt.strftime('%Y-%m-%d')))
         else:
             cursor.execute('''
-                SELECT 
-                    o.order_number,
-                    ROUND(CAST(COUNT(CASE WHEN c.package_id IS NOT NULL THEN 1 END) AS FLOAT) / COUNT(c.id) * 100, 1) as progress
-                FROM orders o
-                LEFT JOIN components c ON c.order_id = o.id
-                GROUP BY o.id
-                ORDER BY progress DESC
-                LIMIT 10
-            ''')
-        order_progress_data = [(order_num, progress) for order_num, progress in cursor.fetchall() if progress is not None]
-        self.orders_progress_chart.set_data(order_progress_data)
+                SELECT DATE(
+                    CASE 
+                        WHEN scanned_at IS NOT NULL THEN scanned_at
+                        WHEN updated_at IS NOT NULL THEN updated_at
+                        ELSE created_at
+                    END
+                ) AS d,
+                COUNT(*)
+                FROM components
+                WHERE package_id IS NOT NULL
+                  AND DATE(CASE WHEN scanned_at IS NOT NULL THEN scanned_at WHEN updated_at IS NOT NULL THEN updated_at ELSE created_at END) BETWEEN ? AND ?
+                GROUP BY d
+            ''', (start_date_dt.strftime('%Y-%m-%d'), end_date_dt.strftime('%Y-%m-%d')))
+        comp_daily = {d: cnt for d, cnt in cursor.fetchall()}
+
+        items = []
+        for d in date_list:
+            items.append((d, int(pkg_daily.get(d, 0) or 0), int(comp_daily.get(d, 0) or 0)))
+        # 设置到新图表
+        self.daily_dual_chart.set_data(items)
         
         # 订单统计
         orders_query = '''
@@ -1413,23 +1636,49 @@ class Reports(QWidget):
                 self.packages_table.setItem(i, j, QTableWidgetItem(text))
         
         # 托盘统计
-        pallets_query = '''
-            SELECT 
-                pal.pallet_number,
-                pal.pallet_type,
-                COUNT(DISTINCT p.id) as package_count,
-                COUNT(c.id) as component_count,
-                pal.status,
-                pal.created_at
-            FROM pallets pal
-            LEFT JOIN packages p ON p.pallet_id = pal.id
-            LEFT JOIN components c ON c.package_id = p.id
-        '''
+        # 使用 pallet_packages 作为托盘与包裹的关联来源；在选择订单时，仅显示与该订单相关的托盘
         params = []
         if self.selected_order_id:
-            pallets_query += " WHERE p.order_id = ?"
-            params.append(self.selected_order_id)
-        pallets_query += " GROUP BY pal.id ORDER BY pal.created_at DESC LIMIT 100"
+            pallets_query = '''
+                SELECT 
+                    pal.pallet_number,
+                    pal.pallet_type,
+                    COUNT(DISTINCT CASE WHEN p.order_id = ? THEN p.id END) as package_count,
+                    COUNT(CASE WHEN p.order_id = ? THEN c.id END) as component_count,
+                    pal.status,
+                    pal.created_at
+                FROM pallets pal
+                LEFT JOIN pallet_packages pp ON pp.pallet_id = pal.id
+                LEFT JOIN packages p ON p.id = pp.package_id
+                LEFT JOIN components c ON c.package_id = p.id
+                WHERE EXISTS (
+                    SELECT 1 
+                    FROM pallet_packages pp2 
+                    JOIN packages p2 ON p2.id = pp2.package_id 
+                    WHERE pp2.pallet_id = pal.id AND p2.order_id = ?
+                )
+                GROUP BY pal.id 
+                ORDER BY pal.created_at DESC 
+                LIMIT 100
+            '''
+            params.extend([self.selected_order_id, self.selected_order_id, self.selected_order_id])
+        else:
+            pallets_query = '''
+                SELECT 
+                    pal.pallet_number,
+                    pal.pallet_type,
+                    COUNT(DISTINCT p.id) as package_count,
+                    COUNT(c.id) as component_count,
+                    pal.status,
+                    pal.created_at
+                FROM pallets pal
+                LEFT JOIN pallet_packages pp ON pp.pallet_id = pal.id
+                LEFT JOIN packages p ON p.id = pp.package_id
+                LEFT JOIN components c ON c.package_id = p.id
+                GROUP BY pal.id 
+                ORDER BY pal.created_at DESC 
+                LIMIT 100
+            '''
         cursor.execute(pallets_query, params)
         pallets_data = cursor.fetchall()
         
@@ -1466,15 +1715,8 @@ class Reports(QWidget):
             pass
         # 同步联动托盘类型：基于当前统计结果预选
         try:
-            # 从概览图表获取托盘类型分布，选择占比最高的类型作为默认值
-            items = getattr(self.pallets_chart, 'data', [])
-            if items:
-                # items: [(label, value)]，label为中文：'实体托盘' 或 '虚拟托盘'
-                top_label = max(items, key=lambda x: x[1])[0]
-                # 设置下拉框选中项
-                index = dialog.pallet_type_combo.findText(str(top_label))
-                if index >= 0:
-                    dialog.pallet_type_combo.setCurrentIndex(index)
+            # 改为根据最近统计的托盘数据推断默认类型（示例：保持不联动）
+            pass
         except Exception:
             # 忽略联动异常，确保导出对话框正常打开
             pass
