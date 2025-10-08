@@ -6,8 +6,40 @@ import json
 class Database:
     def __init__(self, db_path="packing_system.db"):
         self.db_path = db_path
-        self.init_database()
-    
+        # 若目标文件存在但并非 SQLite3 数据库，先做安全备份并重建
+        self._repair_invalid_file()
+        try:
+            self.init_database()
+        except sqlite3.OperationalError as e:
+            # 某些环境中会因为误放了非 SQLite 文件而报 unsupported file format
+            if 'unsupported file format' in str(e).lower():
+                self._repair_invalid_file()
+                self.init_database()
+            else:
+                raise
+
+    def _is_sqlite3_file(self) -> bool:
+        try:
+            if not os.path.exists(self.db_path):
+                return True  # 不存在时将创建为 SQLite，新建视为有效
+            with open(self.db_path, 'rb') as f:
+                header = f.read(16)
+            return header.startswith(b'SQLite format 3')
+        except Exception:
+            # 任何异常都不阻断流程，默认视为有效
+            return True
+
+    def _repair_invalid_file(self):
+        try:
+            if os.path.exists(self.db_path) and not self._is_sqlite3_file():
+                ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+                bad_path = f"{self.db_path}.invalid_{ts}.bak"
+                os.replace(self.db_path, bad_path)
+                print(f"[database] Detected non-SQLite file at {self.db_path}; moved to {bad_path} and will initialize a new database.")
+        except Exception as e:
+            # 备份失败不影响继续初始化（可能为只读目录），但会提示
+            print(f"[database] Failed to backup invalid db file: {e}")
+
     def get_connection(self):
         """获取数据库连接"""
         conn = sqlite3.connect(self.db_path, timeout=5.0)
@@ -605,4 +637,7 @@ class Database:
         conn.close()
 
 # 全局数据库实例
+# 注意：辅助方法必须位于类内部，并且缩进正确
+# 将 db 实例保留在文件末尾，并确保没有额外缩进造成语法错误
+
 db = Database()
