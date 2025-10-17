@@ -89,8 +89,8 @@ class ExportWorker(QThread):
             params.append(self.filters['end_date'])
         
         if self.filters.get('order_number'):
-            query += " AND o.order_number LIKE ?"
-            params.append(f"%{self.filters['order_number']}%")
+            query += " AND o.order_number = ?"
+            params.append(self.filters['order_number'])
         
         query += " GROUP BY p.id ORDER BY p.created_at DESC"
         
@@ -113,11 +113,17 @@ class ExportWorker(QThread):
                 c.scanned_at
             FROM packages p
             JOIN components c ON c.package_id = p.id
+            LEFT JOIN orders o ON p.order_id = o.id
             WHERE c.package_id IS NOT NULL
             ORDER BY p.package_number, c.scanned_at
         '''
         
-        df_components = pd.read_sql_query(component_query, conn)
+        comp_params = []
+        if self.filters.get('order_number'):
+            component_query = component_query.replace("WHERE c.package_id IS NOT NULL", "WHERE c.package_id IS NOT NULL AND o.order_number = ?")
+            comp_params.append(self.filters['order_number'])
+        
+        df_components = pd.read_sql_query(component_query, conn, params=comp_params)
         # 结束数据库连接
         conn.close()
         
@@ -245,6 +251,11 @@ class ExportWorker(QThread):
             query += " AND pal.pallet_type = ?"
             params.append(db_type)
         
+        # 订单号过滤（等值）
+        if self.filters.get('order_number'):
+            query += " AND o.order_number = ?"
+            params.append(self.filters['order_number'])
+        
         query += " GROUP BY pal.id ORDER BY pal.created_at DESC"
         
         df_pallets = pd.read_sql_query(query, conn, params=params)
@@ -268,11 +279,18 @@ class ExportWorker(QThread):
             JOIN packages p ON p.id = pp.package_id
             LEFT JOIN orders o ON p.order_id = o.id
             LEFT JOIN components c ON c.package_id = p.id
+            WHERE 1=1
             GROUP BY pal.id, p.id
             ORDER BY pal.pallet_number, p.package_number
         '''
         
-        df_details = pd.read_sql_query(detail_query, conn)
+        details_params = []
+        if self.filters.get('order_number'):
+            # 在详情查询中按订单号等值过滤
+            detail_query = detail_query.replace("WHERE 1=1", "WHERE o.order_number = ?")
+            details_params.append(self.filters['order_number'])
+        
+        df_details = pd.read_sql_query(detail_query, conn, params=details_params)
         
         # 查询虚拟物品
         virtual_query = '''
@@ -285,10 +303,20 @@ class ExportWorker(QThread):
                 vi.created_at
             FROM pallets pal
             JOIN virtual_items vi ON vi.pallet_id = pal.id
+            WHERE 1=1
             ORDER BY pal.pallet_number, vi.created_at
         '''
         
-        df_virtual = pd.read_sql_query(virtual_query, conn)
+        virtual_params = []
+        if self.filters.get('order_number'):
+            # 仅包含含有所选订单包裹的托盘的虚拟物品
+            virtual_query = virtual_query.replace(
+                "WHERE 1=1",
+                "WHERE EXISTS (SELECT 1 FROM pallet_packages pp2 JOIN packages p2 ON p2.id = pp2.package_id LEFT JOIN orders o2 ON p2.order_id = o2.id WHERE pp2.pallet_id = pal.id AND o2.order_number = ?)"
+            )
+            virtual_params.append(self.filters['order_number'])
+        
+        df_virtual = pd.read_sql_query(virtual_query, conn, params=virtual_params)
         conn.close()
         
         self.progress_updated.emit(60)
@@ -402,10 +430,10 @@ class ExportWorker(QThread):
             query += " AND DATE(p.created_at) <= ?"
             params.append(self.filters['end_date'])
 
-        # 过滤：订单号（模糊）
+        # 过滤：订单号（等值）
         if self.filters.get('order_number'):
-            query += " AND p.order_id IN (SELECT id FROM orders WHERE order_number LIKE ?)"
-            params.append(f"%{self.filters['order_number']}%")
+            query += " AND p.order_id IN (SELECT id FROM orders WHERE order_number = ?)"
+            params.append(self.filters['order_number'])
 
         query += " ORDER BY p.package_number, c.component_code"
 
@@ -484,6 +512,7 @@ class ExportWorker(QThread):
         query = '''
             SELECT 
                 pal.pallet_number AS 托盘号,
+                pal.pallet_index AS 托盘序号,
                 p.package_number AS 包裹号,
                 p.package_index AS 包裹序号,
                 o.order_number AS 订单号,
@@ -493,9 +522,8 @@ class ExportWorker(QThread):
                 c.finished_size AS 成品尺寸,
                 c.room_number AS 房间,
                 c.cabinet_number AS 柜号
-            FROM pallets pal
-            JOIN pallet_packages pp ON pp.pallet_id = pal.id
-            JOIN packages p ON p.id = pp.package_id
+            FROM packages p
+            JOIN pallets pal ON pal.id = p.pallet_id
             JOIN components c ON c.package_id = p.id
             LEFT JOIN orders o ON p.order_id = o.id
             WHERE 1=1
@@ -508,10 +536,10 @@ class ExportWorker(QThread):
         if self.filters.get('end_date'):
             query += " AND DATE(p.created_at) <= ?"
             params.append(self.filters['end_date'])
-        # 订单过滤
+        # 订单过滤（等值）
         if self.filters.get('order_number'):
-            query += " AND o.order_number LIKE ?"
-            params.append(f"%{self.filters['order_number']}%")
+            query += " AND o.order_number = ?"
+            params.append(self.filters['order_number'])
         # 托盘类型过滤
         if self.filters.get('pallet_type'):
             type_map = {'实体托盘': 'physical', '虚拟托盘': 'virtual'}
@@ -521,6 +549,59 @@ class ExportWorker(QThread):
         query += " ORDER BY pal.pallet_number, p.package_number, c.component_code"
 
         df = pd.read_sql_query(query, conn, params=params)
+        # 若结果为空，进行诊断统计，帮助定位筛选与数据源问题
+        if df.empty:
+            try:
+                diag_query_packages = '''
+                    SELECT COUNT(*)
+                    FROM packages p
+                    JOIN pallets pal ON pal.id = p.pallet_id
+                    WHERE 1=1
+                '''
+                diag_params = []
+                if self.filters.get('start_date'):
+                    diag_query_packages += " AND DATE(p.created_at) >= ?"
+                    diag_params.append(self.filters['start_date'])
+                if self.filters.get('end_date'):
+                    diag_query_packages += " AND DATE(p.created_at) <= ?"
+                    diag_params.append(self.filters['end_date'])
+                if self.filters.get('order_number'):
+                    diag_query_packages += " AND EXISTS (SELECT 1 FROM orders o WHERE o.id = p.order_id AND o.order_number = ?)"
+                    diag_params.append(self.filters['order_number'])
+                if self.filters.get('pallet_type'):
+                    type_map = {'实体托盘': 'physical', '虚拟托盘': 'virtual'}
+                    db_type = type_map.get(self.filters['pallet_type'], self.filters['pallet_type'])
+                    diag_query_packages += " AND pal.pallet_type = ?"
+                    diag_params.append(db_type)
+                pkg_count = pd.read_sql_query(diag_query_packages, conn, params=diag_params).iloc[0, 0]
+
+                diag_query_components = '''
+                    SELECT COUNT(*)
+                    FROM components c
+                    JOIN packages p ON c.package_id = p.id
+                    JOIN pallets pal ON pal.id = p.pallet_id
+                    WHERE 1=1
+                '''
+                diag_params2 = []
+                if self.filters.get('start_date'):
+                    diag_query_components += " AND DATE(p.created_at) >= ?"
+                    diag_params2.append(self.filters['start_date'])
+                if self.filters.get('end_date'):
+                    diag_query_components += " AND DATE(p.created_at) <= ?"
+                    diag_params2.append(self.filters['end_date'])
+                if self.filters.get('order_number'):
+                    diag_query_components += " AND EXISTS (SELECT 1 FROM orders o WHERE o.id = p.order_id AND o.order_number = ?)"
+                    diag_params2.append(self.filters['order_number'])
+                if self.filters.get('pallet_type'):
+                    type_map = {'实体托盘': 'physical', '虚拟托盘': 'virtual'}
+                    db_type = type_map.get(self.filters['pallet_type'], self.filters['pallet_type'])
+                    diag_query_components += " AND pal.pallet_type = ?"
+                    diag_params2.append(db_type)
+                comp_count = pd.read_sql_query(diag_query_components, conn, params=diag_params2).iloc[0, 0]
+
+                self.status_updated.emit(f"未查询到数据。当前过滤下，托盘内包裹数: {pkg_count}，包裹-板件记录数: {comp_count}。请检查筛选条件或确认包裹是否包含板件。")
+            except Exception:
+                self.status_updated.emit("未查询到数据。请检查筛选条件，或确认当前托盘内包裹是否包含板件。")
         conn.close()
         self.progress_updated.emit(60)
 
@@ -638,8 +719,8 @@ class ExportWorker(QThread):
             params.append(self.filters['end_date'])
         
         if self.filters.get('order_number'):
-            query += " AND o.order_number LIKE ?"
-            params.append(f"%{self.filters['order_number']}%")
+            query += " AND o.order_number = ?"
+            params.append(self.filters['order_number'])
         
         query += " ORDER BY c.created_at DESC"
         
@@ -721,6 +802,37 @@ class ExportDialog(QDialog):
         
         layout.addWidget(type_group)
         
+        # 订单筛选（必选）
+        order_group = QGroupBox("订单筛选")
+        order_layout = QVBoxLayout(order_group)
+        row_layout = QHBoxLayout()
+        row_layout.addWidget(QLabel("订单号*:"))
+        # 可搜索下拉框
+        self.order_combo = QComboBox()
+        self.order_combo.setEditable(True)
+        self.order_combo.setInsertPolicy(QComboBox.NoInsert)
+        self.order_combo.setMinimumWidth(260)
+        row_layout.addWidget(self.order_combo)
+        order_layout.addLayout(row_layout)
+        # 当前选择提示
+        self.current_order_label = QLabel("当前选择：未选择")
+        order_layout.addWidget(self.current_order_label)
+        layout.addWidget(order_group)
+        
+        # 加载订单列表并设置搜索匹配
+        try:
+            self.load_order_list()
+            # 设置补全器（支持关键字包含匹配，忽略大小写）
+            model = QStringListModel([self.order_combo.itemText(i) for i in range(self.order_combo.count())])
+            completer = QCompleter(model)
+            completer.setFilterMode(Qt.MatchContains)
+            completer.setCaseSensitivity(Qt.CaseInsensitive)
+            self.order_combo.setCompleter(completer)
+            # 选择变化时更新提示
+            self.order_combo.currentTextChanged.connect(lambda text: self.current_order_label.setText(f"当前选择：{text or '未选择'}"))
+        except Exception:
+            pass
+        
         # 二维码选项
         qr_group = QGroupBox("二维码选项")
         qr_layout = QGridLayout(qr_group)
@@ -759,6 +871,22 @@ class ExportDialog(QDialog):
         
         layout.addLayout(button_layout)
     
+    def load_order_list(self):
+        """加载订单列表到下拉框"""
+        conn = db.get_connection()
+        cur = conn.cursor()
+        cur.execute('SELECT order_number, customer_name FROM orders ORDER BY created_at DESC LIMIT 500')
+        rows = cur.fetchall()
+        conn.close()
+        self.order_combo.clear()
+        for order_number, customer_name in rows:
+            display = f"{order_number} - {customer_name or ''}".strip(' -')
+            self.order_combo.addItem(display, order_number)
+        # 默认选中第一项（若存在）
+        if self.order_combo.count() > 0:
+            self.order_combo.setCurrentIndex(0)
+            self.current_order_label.setText(f"当前选择：{self.order_combo.currentText()}")
+    
     def browse_file(self):
         """浏览文件"""
         file_path, _ = QFileDialog.getSaveFileName(
@@ -789,10 +917,34 @@ class ExportDialog(QDialog):
             QMessageBox.warning(self, "警告", "请选择保存路径")
             return
         
-        # 准备过滤条件（简化版，不包含日期和订单过滤）
+        # 新增：订单号必选校验（使用下拉选择值），并支持回退到编辑文本
+        text = (self.order_combo.currentText() or '').strip()
+        data = self.order_combo.currentData()
+        order_number = (data or '').strip() if isinstance(data, str) else ''
+        if not order_number:
+            # 若用户仅在可编辑框输入而未选择列表项，尝试解析前缀为订单号
+            order_number = text.split(' - ')[0] if text else ''
+        if not order_number:
+            QMessageBox.warning(self, "警告", "请先选择订单号")
+            return
+        # 验证订单号存在性，避免手动输入错误
+        try:
+            conn = db.get_connection()
+            cur = conn.cursor()
+            cur.execute('SELECT 1 FROM orders WHERE order_number = ?', (order_number,))
+            exists = cur.fetchone() is not None
+            conn.close()
+        except Exception:
+            exists = True  # 若校验异常不阻断导出
+        if not exists:
+            QMessageBox.warning(self, "警告", "订单号不存在，请从下拉列表选择有效订单")
+            return
+        
+        # 准备过滤条件（包含订单号）
         filters = {
             'include_package_qr': self.include_package_qr_cb.isChecked(),
             'include_pallet_qr': self.include_pallet_qr_cb.isChecked(),
+            'order_number': order_number,
         }
         
         # 开始导出
@@ -1648,14 +1800,12 @@ class Reports(QWidget):
                     pal.status,
                     pal.created_at
                 FROM pallets pal
-                LEFT JOIN pallet_packages pp ON pp.pallet_id = pal.id
-                LEFT JOIN packages p ON p.id = pp.package_id
+                LEFT JOIN packages p ON p.pallet_id = pal.id
                 LEFT JOIN components c ON c.package_id = p.id
                 WHERE EXISTS (
                     SELECT 1 
-                    FROM pallet_packages pp2 
-                    JOIN packages p2 ON p2.id = pp2.package_id 
-                    WHERE pp2.pallet_id = pal.id AND p2.order_id = ?
+                    FROM packages p2 
+                    WHERE p2.pallet_id = pal.id AND p2.order_id = ?
                 )
                 GROUP BY pal.id 
                 ORDER BY pal.created_at DESC 
@@ -1672,8 +1822,7 @@ class Reports(QWidget):
                     pal.status,
                     pal.created_at
                 FROM pallets pal
-                LEFT JOIN pallet_packages pp ON pp.pallet_id = pal.id
-                LEFT JOIN packages p ON p.id = pp.package_id
+                LEFT JOIN packages p ON p.pallet_id = pal.id
                 LEFT JOIN components c ON c.package_id = p.id
                 GROUP BY pal.id 
                 ORDER BY pal.created_at DESC 
@@ -1696,6 +1845,15 @@ class Reports(QWidget):
     
     def export_data(self):
         """导出数据"""
+        # 若未在报表页选择订单，拦截并提示
+        try:
+            if not getattr(self, 'selected_order_id', None):
+                QMessageBox.warning(self, "警告", "请先选择订单号")
+                return
+        except Exception:
+            # 保守处理：若异常则仍提示并阻止
+            QMessageBox.warning(self, "警告", "请先选择订单号")
+            return
         dialog = ExportDialog(self)
         # 与报表页订单筛选联动：预填订单号
         try:
@@ -1710,7 +1868,16 @@ class Reports(QWidget):
                     conn.close()
                     text = (row[0] if row else '')
                 order_number = text.split(' - ')[0] if isinstance(text, str) and ' - ' in text else str(text or '')
-                dialog.order_number_edit.setText(order_number)
+                # 在下拉框中定位并选中匹配项（按订单号前缀匹配）
+                idx = -1
+                for i in range(dialog.order_combo.count()):
+                    itext = dialog.order_combo.itemText(i)
+                    if itext.startswith(order_number):
+                        idx = i
+                        break
+                if idx >= 0:
+                    dialog.order_combo.setCurrentIndex(idx)
+                    dialog.current_order_label.setText(f"当前选择：{dialog.order_combo.currentText()}")
         except Exception:
             pass
         # 同步联动托盘类型：基于当前统计结果预选

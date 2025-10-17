@@ -93,14 +93,14 @@ function request(path, params = {}) {
   })
 }
 
-async function searchByCode(code) {
+async function searchByCode(code, options = {}) {
   const normalized = (code == null ? '' : String(code)).trim().toUpperCase()
   if (CONFIG.USE_CLOUD_DATABASE) {
     // 仅走云数据库查询，不再回退到本地API
-    return cloudUtil.searchByCodeCloud(normalized)
+    return cloudUtil.searchByCodeCloud(normalized, options)
   }
-  // 未开启云数据库，走本地API
-  return request('/api/search', { code: normalized })
+  // 未开启云数据库，走本地API，并传递分页参数（若后端支持）
+  return request('/api/search', { code: normalized, ...options })
 }
 
 // 运行时API地址管理

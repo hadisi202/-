@@ -84,44 +84,69 @@ async function findPalletById(id) {
   }
 }
 
-async function listComponentsInPackage(packageId) {
-  const res = await db().collection('components').where({ package_id: packageId }).limit(1000).get()
+async function listComponentsInPackage(packageId, { skip = 0, limit = 20 } = {}) {
+  const res = await db().collection('components')
+    .where({ package_id: packageId })
+    .skip(Number(skip) || 0)
+    .limit(Math.min(20, Number(limit) || 20))
+    .get()
   return res.data || []
 }
 
 // 兼容旧数据：按本地数值型包裹id查询板件
-async function listComponentsByLocalPackageId(localPkgId) {
+async function listComponentsByLocalPackageId(localPkgId, { skip = 0, limit = 20 } = {}) {
   if (localPkgId == null) return []
-  const res = await db().collection('components').where({ package_id: localPkgId }).limit(1000).get()
+  const res = await db().collection('components')
+    .where({ package_id: localPkgId })
+    .skip(Number(skip) || 0)
+    .limit(Math.min(20, Number(limit) || 20))
+    .get()
   return res.data || []
 }
 
-async function listPackagesOnPallet(palletId) {
-  const res = await db().collection('packages').where({ pallet_id: palletId }).limit(1000).get()
+async function listPackagesOnPallet(palletId, { skip = 0, limit = 20 } = {}) {
+  const res = await db().collection('packages')
+    .where({ pallet_id: palletId })
+    .skip(Number(skip) || 0)
+    .limit(Math.min(20, Number(limit) || 20))
+    .get()
   return res.data || []
 }
 
 // 兼容旧数据：按本地数值型托盘id查询包裹
-async function listPackagesByLocalPalletId(localPalId) {
+async function listPackagesByLocalPalletId(localPalId, { skip = 0, limit = 20 } = {}) {
   if (localPalId == null) return []
-  const res = await db().collection('packages').where({ pallet_id: localPalId }).limit(1000).get()
+  const res = await db().collection('packages')
+    .where({ pallet_id: localPalId })
+    .skip(Number(skip) || 0)
+    .limit(Math.min(20, Number(limit) || 20))
+    .get()
   return res.data || []
 }
 
-async function listComponentsFallbackByNumber(packageNumber) {
+async function listComponentsFallbackByNumber(packageNumber, { skip = 0, limit = 20 } = {}) {
   if (!packageNumber) return []
-  const res = await db().collection('components').where({ package_number: packageNumber }).limit(1000).get()
+  const res = await db().collection('components')
+    .where({ package_number: packageNumber })
+    .skip(Number(skip) || 0)
+    .limit(Math.min(20, Number(limit) || 20))
+    .get()
   return res.data || []
 }
 
-async function listPackagesFallbackByNumber(palletNumber) {
+async function listPackagesFallbackByNumber(palletNumber, { skip = 0, limit = 20 } = {}) {
   if (!palletNumber) return []
-  const res = await db().collection('packages').where({ pallet_number: palletNumber }).limit(1000).get()
+  const res = await db().collection('packages')
+    .where({ pallet_number: palletNumber })
+    .skip(Number(skip) || 0)
+    .limit(Math.min(20, Number(limit) || 20))
+    .get()
   return res.data || []
 }
 
-async function searchByCodeCloud(code) {
+async function searchByCodeCloud(code, options = {}) {
   if (!code) throw new Error('编码不能为空')
+  const { skip = 0, limit = 20 } = options
   
   console.log('开始查询编码:', code)
   
@@ -145,7 +170,6 @@ async function searchByCodeCloud(code) {
         pal = await findPalletByNumber(pkg.pallet_number)
       }
     }
-    // 兜底补充客户地址（优先板件，其次包裹）
     try {
       if (!comp.customer_address) {
         comp.customer_address = (pkg && pkg.customer_address) || ''
@@ -163,16 +187,14 @@ async function searchByCodeCloud(code) {
     return result
   }
 
-  // 2) 尝试按包裹号查询
+  // 2) 尝试按包裹号查询（分页）
   const pkg = await findPackageByNumber(code)
   console.log('包裹查询结果:', pkg)
   if (pkg) {
-    // 从多个来源收集组件：按 package_id、按 package_number 兜底、按本地数值型 id 兜底
-    const byId = await listComponentsInPackage(pkg._id)
-    const byNumber = pkg.package_number ? await listComponentsFallbackByNumber(pkg.package_number) : []
-    const byLocal = (typeof pkg.id === 'number') ? await listComponentsByLocalPackageId(pkg.id) : []
+    const byId = await listComponentsInPackage(pkg._id, { skip, limit })
+    const byNumber = pkg.package_number ? await listComponentsFallbackByNumber(pkg.package_number, { skip, limit }) : []
+    const byLocal = (typeof pkg.id === 'number') ? await listComponentsByLocalPackageId(pkg.id, { skip, limit }) : []
   
-    // 合并并去重
     const all = ([]).concat(byId || [], byNumber || [], byLocal || [])
     const seen = new Set()
     const merged = []
@@ -186,7 +208,6 @@ async function searchByCodeCloud(code) {
       merged.push(c)
     }
   
-    // 排序：按 component_code 升序（缺失则置后）
     merged.sort((a, b) => {
       const ac = (a.component_code || '').toString().toUpperCase()
       const bc = (b.component_code || '').toString().toUpperCase()
@@ -202,8 +223,27 @@ async function searchByCodeCloud(code) {
       pal = await findPalletByNumber(pkg.pallet_number)
     }
   
-    // 成员数量与客户地址兜底
-    pkg.component_count = typeof pkg.component_count === 'number' ? pkg.component_count : (Array.isArray(merged) ? merged.length : 0)
+    // 通过 count() 计算包裹下板件总数，避免被分页截断
+    let totalCount = 0
+    try {
+      const counts = []
+      if (pkg._id) {
+        const r1 = await db().collection('components').where({ package_id: pkg._id }).count()
+        counts.push((typeof r1.total === 'number') ? r1.total : 0)
+      }
+      if (pkg.package_number) {
+        const r2 = await db().collection('components').where({ package_number: pkg.package_number }).count()
+        counts.push((typeof r2.total === 'number') ? r2.total : 0)
+      }
+      if (typeof pkg.id === 'number') {
+        const r3 = await db().collection('components').where({ package_id: pkg.id }).count()
+        counts.push((typeof r3.total === 'number') ? r3.total : 0)
+      }
+      totalCount = counts.length ? Math.max(...counts) : 0
+    } catch (e) {
+      console.warn('包裹板件计数失败:', e)
+    }
+    pkg.component_count = (typeof pkg.component_count === 'number') ? Math.max(pkg.component_count, totalCount) : totalCount
     if (!pkg.customer_address) {
       const firstNonEmpty = Array.isArray(merged) ? merged.find(c => typeof c.customer_address === 'string' && c.customer_address.trim()) : null
       pkg.customer_address = (firstNonEmpty && firstNonEmpty.customer_address) || ''
@@ -217,24 +257,42 @@ async function searchByCodeCloud(code) {
     }
   }
 
-  // 3) 尝试按托盘号查询
+  // 3) 尝试按托盘号查询（分页）
   const pal = await findPalletByNumber(code)
   console.log('托盘查询结果:', pal)
   if (pal) {
-    let pkgs = await listPackagesOnPallet(pal._id)
+    let pkgs = await listPackagesOnPallet(pal._id, { skip, limit })
     if ((!pkgs || pkgs.length === 0) && pal.pallet_number) {
-      // 若旧数据 pallet_id 无效，按托盘号兜底
-      pkgs = await listPackagesFallbackByNumber(pal.pallet_number)
+      pkgs = await listPackagesFallbackByNumber(pal.pallet_number, { skip, limit })
     }
     if ((!pkgs || pkgs.length === 0) && typeof pal.id === 'number') {
-      // 进一步兼容：按本地托盘数值id查询包裹
-      pkgs = await listPackagesByLocalPalletId(pal.id)
+      pkgs = await listPackagesByLocalPalletId(pal.id, { skip, limit })
     }
-    // 为每个包裹附带板件明细与数量、客户地址（从组件集合兜底）
+
+    // 统计托盘下包裹真实总数（多条件取最大），避免分页截断
+    try {
+      const counts = []
+      if (pal._id) {
+        const r1 = await db().collection('packages').where({ pallet_id: pal._id }).count()
+        counts.push((typeof r1.total === 'number') ? r1.total : 0)
+      }
+      if (pal.pallet_number) {
+        const r2 = await db().collection('packages').where({ pallet_number: pal.pallet_number }).count()
+        counts.push((typeof r2.total === 'number') ? r2.total : 0)
+      }
+      if (typeof pal.id === 'number') {
+        const r3 = await db().collection('packages').where({ pallet_id: pal.id }).count()
+        counts.push((typeof r3.total === 'number') ? r3.total : 0)
+      }
+      pal.package_count = counts.length ? Math.max(...counts) : 0
+    } catch (e) {
+      console.warn('托盘包裹计数失败:', e)
+    }
+
     const packages = await Promise.all(pkgs.map(async (p) => {
-      const byId = await listComponentsInPackage(p._id)
-      const byNumber = p.package_number ? await listComponentsFallbackByNumber(p.package_number) : []
-      const byLocal = (typeof p.id === 'number') ? await listComponentsByLocalPackageId(p.id) : []
+      const byId = await listComponentsInPackage(p._id, { skip, limit })
+      const byNumber = p.package_number ? await listComponentsFallbackByNumber(p.package_number, { skip, limit }) : []
+      const byLocal = (typeof p.id === 'number') ? await listComponentsByLocalPackageId(p.id, { skip, limit }) : []
       const all = ([]).concat(byId || [], byNumber || [], byLocal || [])
       const seen = new Set()
       const merged = []
@@ -266,12 +324,10 @@ async function searchByCodeCloud(code) {
               if (t && !/^(未知|地址未知|unknown)$/i.test(t)) candidates.push(t)
             }
           }
-          // 包裹级候选
           add(p.customer_address)
           add(p.address)
           add(p.delivery_address)
           add(p.shipping_address)
-          // 组件级候选
           if (Array.isArray(merged)) {
             for (const c of merged) {
               add(c.customer_address)
@@ -281,7 +337,6 @@ async function searchByCodeCloud(code) {
             }
           }
           if (candidates.length === 0) return ''
-          // 选出现频次最高的地址
           const freq = {}
           let best = ''
           let bestCount = 0
@@ -296,9 +351,6 @@ async function searchByCodeCloud(code) {
         })()
       })
     }))
-    // 兜底（按你指定的顺序）：
-    // 1) 先取第1个包裹的地址（多字段候选）
-    // 2) 若无，则取第1个包裹内板件的地址（多字段候选，取第一个非空）
     const sanitize = (v) => (typeof v === 'string') ? v.trim() : ''
     const isValid = (a) => a && !/^(未知|地址未知|unknown)$/i.test(a)
     const firstPkg = packages && packages[0]
@@ -329,7 +381,6 @@ async function searchByCodeCloud(code) {
      }
   }
 
-  // 未命中
   console.log('所有查询都未命中，编码:', code)
   throw new Error(`未找到编码 "${code}" 的相关数据`)
 }

@@ -2,7 +2,7 @@
   <!-- 标题区域 -->
   <view class="header">
     <text class="title">哈迪斯 包装查询系统</text>
-    <text class="subtitle">输入板件编码进行查询</text>
+    <text class="subtitle">输入编码或扫码查询，支持分页</text>
   </view>
 
   <!-- 查询区域 -->
@@ -16,12 +16,8 @@
         confirm-type="search"
         bindconfirm="doSearch"
       />
-      <button class="search-btn" bindtap="doSearch" disabled="{{!inputCode}}">
-        查询
-      </button>
+      <button class="search-btn" bindtap="doSearch" disabled="{{!inputCode}}">查询</button>
       <button class="scan-btn" bindtap="scanCodeSearch">扫码</button>
-      
-      <!-- 连接诊断按钮已按要求移除 -->
     </view>
   </view>
 
@@ -96,9 +92,9 @@
             <text class="label">第几个托盘：</text>
             <text class="value highlight">第{{result.pallet.pallet_index}}个托盘</text>
           </view>
-          <view class="info-row" wx:if="{{result.packageCount !== undefined}}">
+          <view class="info-row" wx:if="{{result.type === '托盘'}}">
             <text class="label">包裹总数：</text>
-            <text class="value">{{result.packageCount}}</text>
+            <text class="value">{{(result.packageCount !== undefined && result.packageCount !== null) ? result.packageCount : 0}}</text>
           </view>
 
           <!-- 包裹列表（当查询的是托盘时） -->
@@ -186,7 +182,7 @@
 
   <!-- 无结果提示 -->
   <view class="no-result" wx:if="{{searched && !result}}">
-    <text class="no-result-text">未找到相关板件信息</text>
+    <text class="no-result-text">未找到相关信息</text>
     <text class="no-result-tip">请检查编码是否正确</text>
   </view>
 
@@ -194,4 +190,15 @@
   <view class="loading" wx:if="{{loading}}">
     <text class="loading-text">查询中...</text>
   </view>
+</view>
+
+<!-- 分页控制：当类型为包裹或托盘时显示 -->
+<view class="paging-controls" wx:if="{{result.type === '包裹' || result.type === '托盘'}}">
+  <button class="paging-btn" bindtap="prevPage" disabled="{{pageIndex<=0}}">上一页</button>
+  <button class="paging-btn" bindtap="nextPage" disabled="{{!hasMore}}">下一页</button>
+</view>
+
+<!-- 加载更多：包裹与托盘均支持累加展示 -->
+<view class="load-more" wx:if="{{hasMore}}">
+  <button class="paging-btn primary" bindtap="loadMore">加载更多</button>
 </view>

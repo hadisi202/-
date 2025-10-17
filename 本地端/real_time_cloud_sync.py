@@ -11,7 +11,8 @@ import threading
 import queue
 # 新增：HTTP调用依赖与全量同步工具函数
 import requests
-from cloud_sync import fetch_pallets, fetch_packages, fetch_components, Database
+from cloud_sync import fetch_pallets, fetch_packages, fetch_components
+from database import Database
 # 新增：CLI 兜底所需
 import subprocess
 import re
@@ -24,6 +25,17 @@ class RealTimeCloudSync:
         self.running = False
         self.sync_thread = None
         self.last_sync_time = {}
+        # 进度文件路径（供前端轮询显示百分比）
+        try:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            self._progress_file = os.path.join(base_dir, 'sync_progress.json')
+        except Exception:
+            self._progress_file = 'sync_progress.json'
+        # 在进行任何直接 sqlite3.connect 之前，先用 Database 类修复/初始化无效文件
+        try:
+            Database(self.db_path)
+        except Exception:
+            pass
         # 新增：读取 packOps 配置（环境变量）
         self.packops_base_url = os.environ.get('PACKOPS_BASE_URL', '').strip()
         self.packops_api_key = os.environ.get('PACKOPS_API_KEY', '').strip()
@@ -84,11 +96,22 @@ class RealTimeCloudSync:
         try:
             base_dir = os.path.dirname(os.path.abspath(__file__))
             self._lock_path = os.path.join(base_dir, 'sync.lock')
-            # 独占创建，不存在时创建；存在时视为其他进程在运行
-            self._lock_file = open(self._lock_path, 'x')
-        except FileExistsError:
-            self._log("检测到已有同步服务在运行（sync.lock 存在），已取消启动以避免多端并发冲突")
-            return
+            try:
+                self._lock_file = open(self._lock_path, 'x')
+            except FileExistsError:
+                try:
+                    mtime = os.path.getmtime(self._lock_path)
+                    age = time.time() - mtime
+                    if age > 600:
+                        os.remove(self._lock_path)
+                        self._lock_file = open(self._lock_path, 'x')
+                        self._log("发现过期锁文件，已清理并继续启动")
+                    else:
+                        self._log("检测到已有同步服务在运行（sync.lock 存在），已取消启动以避免多端并发冲突")
+                        return
+                except Exception as e:
+                    self._log(f"检查/清理锁文件失败：{e}")
+                    return
         except Exception as e:
             self._log(f"创建锁文件失败：{e}")
         # 检查必要配置
@@ -107,8 +130,12 @@ class RealTimeCloudSync:
     def stop_sync_service(self):
         """停止同步服务"""
         self.running = False
-        if self.sync_thread:
-            self.sync_thread.join(timeout=5)
+        # 避免在工作线程内 join 自身导致阻塞
+        try:
+            if self.sync_thread and threading.current_thread() is not self.sync_thread:
+                self.sync_thread.join(timeout=5)
+        except Exception:
+            pass
         # 释放锁文件
         try:
             if hasattr(self, '_lock_file') and self._lock_file:
@@ -121,167 +148,171 @@ class RealTimeCloudSync:
 
     def _post_json(self, path: str, payload: Dict) -> Dict:
         """调用 packOps 接口：优先 HTTP，缺省走 CLI 兜底"""
+        # 若未配置 HTTP，则直接走 CLI
         if not self.packops_base_url:
             return self._invoke_cli(path, payload)
+        # 先尝试 HTTP，失败后自动兜底到 CLI
         try:
-            url = self.packops_base_url.rstrip('/')
+            base = self.packops_base_url.rstrip('/')
+            # 将路由通过 query string 传递给 packOps（与 CLI 事件一致）
+            route = path if path.startswith('/') else f'/{path}'
             headers = {
                 'Content-Type': 'application/json',
                 'X-API-Key': self.packops_api_key,
             }
             body = dict(payload)
-            body['path'] = path if path.startswith('/') else f'/{path}'
-            resp = requests.post(url, headers=headers, data=json.dumps(body), timeout=30, verify=self.packops_verify)
-            try:
-                return resp.json()
-            except Exception:
-                return {'status': resp.status_code, 'text': resp.text}
+            # 尝试方式一：仅映射到 /packOps 的场景（通过 ?path= 传递子路由）
+            sep = '&' if ('?' in base) else '?'
+            url_qs = f"{base}{sep}path={route}"
+            self._log(f"HTTP 尝试1: {url_qs}")
+            resp = requests.post(url_qs, headers=headers, data=json.dumps(body), timeout=30, verify=self.packops_verify)
+            if 200 <= resp.status_code < 300:
+                try:
+                    return resp.json()
+                except Exception:
+                    return {'status': resp.status_code, 'text': resp.text}
+            # 尝试方式二：直接拼接子路由（映射到 /packOps/** 的场景）
+            url_direct = f"{base}{route}"
+            self._log(f"HTTP 尝试2: {url_direct}（上次状态 {resp.status_code}）")
+            resp2 = requests.post(url_direct, headers=headers, data=json.dumps(body), timeout=30, verify=self.packops_verify)
+            if 200 <= resp2.status_code < 300:
+                try:
+                    return resp2.json()
+                except Exception:
+                    return {'status': resp2.status_code, 'text': resp2.text}
+            # 两种方式均失败，转 CLI 兜底
+            self._log(f"HTTP 调用均失败({resp.status_code}/{resp2.status_code})，尝试 CLI 兜底：{route}")
+            return self._invoke_cli(path, payload)
         except Exception as e:
-            return {'error': str(e)}
+            self._log(f"HTTP 调用异常，尝试 CLI 兜底：{e}")
+            return self._invoke_cli(path, payload)
 
-    def _invoke_cli(self, path: str, payload: Dict) -> Dict:
-        """使用 CloudBase CLI 直接调用 packOps 云函数（无 HTTP 域名时兜底）"""
+    # 进度写入工具方法
+    def _write_progress(self, data: Dict):
         try:
-            payload2 = dict(payload)
-            payload2['path'] = path if path.startswith('/') else f'/{path}'
-            event = {
-                "httpMethod": "POST",
-                "path": "/packOps",
-                "headers": {"X-API-Key": self.packops_api_key, "Content-Type": "application/json"},
-                "queryStringParameters": {"path": payload2['path']},
-                "body": payload2
-            }
-            params = json.dumps(event, ensure_ascii=True)
-            # Windows 下 tcb 为 .cmd，需通过 shell 调用并转义引号；使用字节输出并自适应解码
-            if os.name == 'nt':
-                escaped = params.replace('"', '\\"')
-                cmd_str = f"tcb fn invoke packOps -e {self.packops_env_id} --params \"{escaped}\""
-                res = subprocess.run(cmd_str, shell=True, capture_output=True, text=False, timeout=90)
-                out_bytes = res.stdout or b''
-                err_bytes = res.stderr or b''
-                def _decode(b: bytes) -> str:
-                    for enc in ('utf-8', 'gbk', 'latin-1'):
-                        try:
-                            return b.decode(enc)
-                        except Exception:
-                            continue
-                    return b.decode('utf-8', errors='ignore')
-                out = _decode(out_bytes)
-                err = _decode(err_bytes)
-            else:
-                cmd = ["tcb", "fn", "invoke", "packOps", "-e", self.packops_env_id, "--params", params]
-                res = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
-                out = res.stdout or ''
-                err = res.stderr or ''
-            if res.returncode != 0:
-                return {"error": (err or out).strip()}
-            # 更健壮的输出解析：优先直接定位最外层 JSON；否则兼容中文“返回结果：”
-            start = out.find('{')
-            end = out.rfind('}')
-            json_text = out[start:end+1] if start != -1 and end != -1 and end > start else out.strip()
-            try:
-                wrapper = json.loads(json_text)
-                body_str = wrapper.get("body")
-                if isinstance(body_str, str):
-                    try:
-                        return json.loads(body_str)
-                    except Exception:
-                        return {"raw": wrapper}
-                elif isinstance(body_str, dict):
-                    return body_str
-                else:
-                    return wrapper
-            except Exception:
-                m = re.search(r'返回结果：(.+)', out, re.S)
-                if m:
-                    try:
-                        return json.loads(m.group(1).strip())
-                    except Exception:
-                        pass
-                return {"stdout": out}
-        except Exception as e:
-            return {"error": str(e)}
+            tmp_path = f"{self._progress_file}.tmp"
+            with open(tmp_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False)
+            os.replace(tmp_path, self._progress_file)
+        except Exception:
+            # 非关键路径，忽略写入失败
+            pass
+
+    def _start_progress(self, operation: str, data_type: str, total_chunks: int):
+        payload = {
+            'operation': operation,
+            'data_type': data_type,
+            'status': 'in_progress',
+            'percent': 0,
+            'total_chunks': max(1, int(total_chunks)),
+            'completed_chunks': 0,
+            'failed_chunks': 0,
+            'updated_at': datetime.now().isoformat(timespec='seconds')
+        }
+        self._write_progress(payload)
+
+    def _update_progress(self, operation: str, data_type: str, completed_chunks: int, total_chunks: int, failed_chunks: int = 0):
+        total = max(1, int(total_chunks))
+        completed = max(0, int(completed_chunks))
+        percent = int((completed / total) * 100)
+        payload = {
+            'operation': operation,
+            'data_type': data_type,
+            'status': 'in_progress',
+            'percent': percent,
+            'total_chunks': total,
+            'completed_chunks': completed,
+            'failed_chunks': max(0, int(failed_chunks)),
+            'updated_at': datetime.now().isoformat(timespec='seconds')
+        }
+        self._write_progress(payload)
+
+    def _finish_progress(self, operation: str, data_type: str, total_chunks: int, failed_chunks: int = 0):
+        payload = {
+            'operation': operation,
+            'data_type': data_type,
+            'status': 'completed' if failed_chunks == 0 else 'failed',
+            'percent': 100,
+            'total_chunks': max(1, int(total_chunks)),
+            'completed_chunks': max(1, int(total_chunks)),
+            'failed_chunks': max(0, int(failed_chunks)),
+            'updated_at': datetime.now().isoformat(timespec='seconds')
+        }
+        self._write_progress(payload)
 
     def _sync_worker(self):
-        """同步工作线程"""
+        """后台工作线程：消费队列并执行同步任务；空闲时做周期性检查"""
+        self._log("同步工作线程已启动")
+        idle_counter = 0
         while self.running:
             try:
-                # 处理同步队列中的任务
-                if not self.sync_queue.empty():
-                    task = self.sync_queue.get(timeout=1)
-                    self._process_sync_task(task)
+                task = self.sync_queue.get(timeout=1)
+                idle_counter = 0
+            except Exception:
+                task = None
+                idle_counter += 1
+            try:
+                if not task:
+                    # 每 ~30 秒做一次轻量的周期性检查
+                    if idle_counter >= 30:
+                        idle_counter = 0
+                        self._periodic_sync_check()
+                    continue
+                t = (task.get('type') or '').strip()
+                data = task.get('data') or {}
+                if t == 'full_sync':
+                    self._log('开始执行全量同步任务')
+                    self._perform_full_sync()
+                elif t == 'component':
+                    self._log('处理最近板件更新任务')
+                    self._sync_recent_components()
+                elif t == 'package':
+                    self._log('处理最近包裹更新任务')
+                    self._sync_recent_packages()
+                elif t == 'pallet':
+                    self._log('处理最近托盘更新任务')
+                    self._sync_recent_pallets()
+                elif t == 'clear':
+                    cols = data.get('collections') if isinstance(data, dict) else None
+                    self._log(f'执行云端清理任务: {cols}')
+                    out = self.clear_collections(cols)
+                    self._log('云端清理结果: ' + json.dumps(out, ensure_ascii=False))
                 else:
-                    # 定期同步：将最近更新的数据批量推送到云端
-                    self._periodic_sync_check()
-                    # 等待片刻，避免过于频繁
-                    time.sleep(10)
-            except queue.Empty:
-                continue
+                    self._log(f'忽略未知任务类型: {t}')
             except Exception as e:
-                self._log(f"同步工作线程错误: {e}")
-                time.sleep(5)
+                self._log(f"工作线程处理任务失败: {e}")
 
-    def _process_sync_task(self, task: Dict):
-        """处理同步任务"""
+    def _invoke_cli(self, path: str, payload: Dict) -> Dict:
+        """CLI 兜底：使用 CloudBase CLI 调用 packOps，未安装则优雅失败"""
         try:
-            task_type = task.get('type')
-            data = task.get('data')
-            # 将单个更新合并为批量推送，避免频繁调用
-            if task_type == 'component':
-                self._sync_recent_components()
-            elif task_type == 'package':
-                self._sync_recent_packages()
-            elif task_type == 'pallet':
-                self._sync_recent_pallets()
-            elif task_type == 'full_sync':
-                self._perform_full_sync()
-            # 新增：云端删除与清空集合
-            elif task_type == 'delete_components':
+            env_id = (self.packops_env_id or 'cloud1-7grjr7usb5d86f59').strip()
+            event = {
+                'httpMethod': 'POST',
+                'path': '/packOps',
+                'headers': {
+                    'X-API-Key': self.packops_api_key,
+                    'Content-Type': 'application/json'
+                },
+                'queryStringParameters': {
+                    'path': path if path.startswith('/') else f'/{path}'
+                },
+                'body': payload
+            }
+            args = ['tcb', 'fn', 'invoke', 'packOps', '-e', env_id, '--params', json.dumps(event, ensure_ascii=False)]
+            res = subprocess.run(args, capture_output=True, text=True, timeout=30)
+            if res.returncode == 0:
                 try:
-                    items = data.get('items') if isinstance(data, dict) else []
-                    codes = [it.get('component_code') for it in items if isinstance(it, dict) and it.get('component_code')]
-                    if codes:
-                        payload = [{'component_code': c} for c in codes]
-                        out = self._post_items_in_chunks('/delete/components', payload)
-                        self._log('云端删除板件结果: ' + json.dumps(out, ensure_ascii=False))
-                except Exception as e:
-                    self._log(f"触发云端删除板件失败: {e}")
-            elif task_type == 'delete_packages':
-                try:
-                    items = data.get('items') if isinstance(data, dict) else []
-                    pkgs = [it.get('package_number') for it in items if isinstance(it, dict) and it.get('package_number')]
-                    if pkgs:
-                        payload = [{'package_number': p} for p in pkgs]
-                        out = self._post_items_in_chunks('/delete/packages', payload)
-                        self._log('云端删除包裹结果: ' + json.dumps(out, ensure_ascii=False))
-                except Exception as e:
-                    self._log(f"触发云端删除包裹失败: {e}")
-            elif task_type == 'delete_pallets':
-                try:
-                    items = data.get('items') if isinstance(data, dict) else []
-                    pals = [it.get('pallet_number') for it in items if isinstance(it, dict) and it.get('pallet_number')]
-                    if pals:
-                        payload = [{'pallet_number': p} for p in pals]
-                        out = self._post_items_in_chunks('/delete/pallets', payload)
-                        self._log('云端删除托盘结果: ' + json.dumps(out, ensure_ascii=False))
-                except Exception as e:
-                    self._log(f"触发云端删除托盘失败: {e}")
-            elif task_type == 'clear':
-                try:
-                    cols = []
-                    if isinstance(data, dict):
-                        cols = data.get('collections') or []
-                    out = self._post_json('/clear', {'collections': cols})
-                    self._log('云端清空集合结果: ' + json.dumps(out, ensure_ascii=False))
-                except Exception as e:
-                    self._log(f"触发云端清空集合失败: {e}")
+                    return json.loads(res.stdout.strip())
+                except Exception:
+                    return {'status': 200, 'text': res.stdout.strip()}
+            return {'error': (res.stderr.strip() or res.stdout.strip() or 'CLI 调用失败')}
         except Exception as e:
-            self._log(f"处理同步任务失败: {e}")
+            return {'error': str(e)}
 
     # 新增：最近更新的批量推送（带关联合并字段）
     def _sync_recent_components(self):
         try:
-            conn = sqlite3.connect(self.db_path, timeout=5.0)
+            conn = Database(self.db_path).get_connection()
             cur = conn.cursor()
             try:
                 cur.execute('PRAGMA busy_timeout = 5000')
@@ -323,7 +354,7 @@ class RealTimeCloudSync:
 
     def _sync_recent_packages(self):
         try:
-            conn = sqlite3.connect(self.db_path, timeout=5.0)
+            conn = Database(self.db_path).get_connection()
             cur = conn.cursor()
             try:
                 cur.execute('PRAGMA busy_timeout = 5000')
@@ -367,7 +398,7 @@ class RealTimeCloudSync:
 
     def _sync_recent_pallets(self):
         try:
-            conn = sqlite3.connect(self.db_path, timeout=5.0)
+            conn = Database(self.db_path).get_connection()
             cur = conn.cursor()
             try:
                 cur.execute('PRAGMA busy_timeout = 5000')
@@ -414,11 +445,22 @@ class RealTimeCloudSync:
             self._sync_recent_components()
             self._sync_recent_packages()
             self._sync_recent_pallets()
+            # 新增：一次性推送完成后立即终止当前推送流程，避免循环上传
+            try:
+                self._log('最近板件/包裹/托盘增量推送已完成，本轮推送流程终止以避免循环上传')
+            except Exception:
+                pass
+            # 安全终止（在工作线程内调用）
+            self.stop_sync_service()
         except Exception as e:
             self._log(f"定期检查同步失败: {e}")
 
-    def trigger_sync(self, data_type: str, data: Dict):
-        """手动触发同步"""
+    def trigger_sync(self, data_type: str, data: Dict, force: bool = False):
+        """手动触发同步（仅在 force=True 时生效）"""
+        # 仅允许手动触发，默认忽略所有非手动触发
+        if not force:
+            self._log(f"忽略非手动触发的同步: {data_type}")
+            return
         self.sync_queue.put({
             'type': data_type,
             'data': data,
@@ -473,7 +515,12 @@ class RealTimeCloudSync:
                 chunk_size = 3
             else:
                 chunk_size = 2
+        # 进度初始化
+        data_type = 'components' if 'components' in path else ('packages' if 'packages' in path else ('pallets' if 'pallets' in path else 'other'))
+        total_chunks = max(1, (len(items) + chunk_size - 1) // chunk_size)
+        self._start_progress('upload', data_type, total_chunks)
         results = []
+        failed_chunks = 0
         for i in range(0, len(items), chunk_size):
             part = items[i:i + chunk_size]
             part = self._sanitize_items(part)
@@ -499,6 +546,14 @@ class RealTimeCloudSync:
                 else:
                     break
             results.append(last_res)
+            # 更新进度（按分片推进）
+            completed_chunks = len(results)
+            # 统计失败分片
+            if isinstance(last_res, dict) and (('error' in last_res) or (last_res.get('status') and not str(last_res.get('status')).startswith('2'))):
+                failed_chunks += 1
+            self._update_progress('upload', data_type, completed_chunks, total_chunks, failed_chunks)
+        # 完成进度
+        self._finish_progress('upload', data_type, total_chunks, failed_chunks)
         return {'ok': True, 'chunks': results, 'total_chunks': len(results)}
 
     def _perform_full_sync(self):

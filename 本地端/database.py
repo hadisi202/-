@@ -14,7 +14,23 @@ class Database:
             # 某些环境中会因为误放了非 SQLite 文件而报 unsupported file format
             if 'unsupported file format' in str(e).lower():
                 self._repair_invalid_file()
-                self.init_database()
+                try:
+                    # 优先尝试强制重建同名文件
+                    self._force_recreate_db()
+                    self.init_database()
+                except Exception:
+                    # 若重建失败（例如Windows文件锁导致无法重命名），切换到新的数据库文件路径
+                    base, ext = os.path.splitext(self.db_path)
+                    fallback = f"{base}_fixed{ext or '.db'}"
+                    self.db_path = fallback
+                    print(f"[database] Fallback to new db path: {self.db_path}")
+                    # 确保目录存在并创建空库
+                    try:
+                        conn = sqlite3.connect(self.db_path)
+                        conn.close()
+                    except Exception:
+                        pass
+                    self.init_database()
             else:
                 raise
 
@@ -26,8 +42,8 @@ class Database:
                 header = f.read(16)
             return header.startswith(b'SQLite format 3')
         except Exception:
-            # 任何异常都不阻断流程，默认视为有效
-            return True
+            # 读取失败或其它异常一律视为无效，以触发修复流程
+            return False
 
     def _repair_invalid_file(self):
         try:
@@ -39,6 +55,20 @@ class Database:
         except Exception as e:
             # 备份失败不影响继续初始化（可能为只读目录），但会提示
             print(f"[database] Failed to backup invalid db file: {e}")
+
+    def _force_recreate_db(self):
+        """在检测到不受支持的文件格式时，强制重建数据库文件"""
+        try:
+            if os.path.exists(self.db_path):
+                ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+                bad_path = f"{self.db_path}.invalid_{ts}.bak"
+                os.replace(self.db_path, bad_path)
+                print(f"[database] Force recreated database: moved invalid file to {bad_path}")
+            # 创建一个全新的空数据库文件
+            conn = sqlite3.connect(self.db_path)
+            conn.close()
+        except Exception as e:
+            print(f"[database] Failed to force recreate db: {e}")
 
     def get_connection(self):
         """获取数据库连接"""
@@ -84,199 +114,209 @@ class Database:
     
     def init_database(self):
         """初始化数据库，创建所有表"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        # 创建订单表
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS orders (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                order_number TEXT UNIQUE NOT NULL,
-                customer_name TEXT,
-                customer_address TEXT,
-                customer_phone TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                status TEXT DEFAULT 'active',
-                notes TEXT
-            )
-        ''')
-        
-        # 创建板件表
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS components (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                order_id INTEGER,
-                component_name TEXT NOT NULL,
-                material TEXT,
-                finished_size TEXT,
-                component_code TEXT UNIQUE NOT NULL,
-                room_number TEXT,
-                cabinet_number TEXT,
-                q_code TEXT,
-                a_code TEXT,
-                b_code TEXT,
-                package_id INTEGER,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                status TEXT DEFAULT 'pending',
-                FOREIGN KEY (order_id) REFERENCES orders (id),
-                FOREIGN KEY (package_id) REFERENCES packages (id)
-            )
-        ''')
-        
-        # 创建包装表
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS packages (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                package_number TEXT UNIQUE NOT NULL,
-                order_id INTEGER,
-                component_count INTEGER DEFAULT 0,
-                pallet_id INTEGER,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                completed_at TIMESTAMP,
-                status TEXT DEFAULT 'open',
-                notes TEXT,
-                FOREIGN KEY (order_id) REFERENCES orders (id),
-                FOREIGN KEY (pallet_id) REFERENCES pallets (id)
-            )
-        ''')
-        
-        # 创建托盘表
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS pallets (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                pallet_number TEXT UNIQUE NOT NULL,
-                pallet_type TEXT DEFAULT 'physical',
-                order_id INTEGER,
-                package_count INTEGER DEFAULT 0,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                sealed_at TIMESTAMP,
-                status TEXT DEFAULT 'open',
-                notes TEXT,
-                virtual_items TEXT
-            )
-        ''')
-        
-        # 创建标签模板表
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS label_templates (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                template_name TEXT UNIQUE NOT NULL,
-                template_config TEXT NOT NULL,
-                label_width INTEGER DEFAULT 100,
-                label_height INTEGER DEFAULT 60,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                is_default INTEGER DEFAULT 0
-            )
-        ''')
-        
-        # 创建系统设置表
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS system_settings (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                setting_key TEXT UNIQUE NOT NULL,
-                setting_value TEXT,
-                setting_type TEXT DEFAULT 'string',
-                description TEXT,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-        
-        # 创建CSV导入配置表
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS import_configs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                config_name TEXT UNIQUE NOT NULL,
-                field_mapping TEXT NOT NULL,
-                encoding TEXT DEFAULT 'utf-8',
-                delimiter TEXT DEFAULT ',',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                is_default INTEGER DEFAULT 0
-            )
-        ''')
-        
-        # 创建扫码配置表
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS scan_configs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                config_name TEXT UNIQUE NOT NULL,
-                prefix_remove INTEGER DEFAULT 0,
-                suffix_remove INTEGER DEFAULT 0,
-                extract_start INTEGER DEFAULT 0,
-                extract_length INTEGER DEFAULT 0,
-                extract_mode TEXT DEFAULT 'none',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                is_default INTEGER DEFAULT 0
-            )
-        ''')
-        
-        # 创建操作日志表
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS operation_logs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                operation_type TEXT NOT NULL,
-                operation_data TEXT,
-                user_name TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                can_undo INTEGER DEFAULT 1,
-                undo_data TEXT
-            )
-        ''')
-        
-        # 创建包装历史表（用于撤销功能）
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS package_history (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                package_id INTEGER,
-                component_id INTEGER,
-                operation TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (package_id) REFERENCES packages (id),
-                FOREIGN KEY (component_id) REFERENCES components (id)
-            )
-        ''')
-        
-        # 创建托盘包装关联表
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS pallet_packages (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                pallet_id INTEGER NOT NULL,
-                package_id INTEGER NOT NULL,
-                added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (pallet_id) REFERENCES pallets (id),
-                FOREIGN KEY (package_id) REFERENCES packages (id),
-                UNIQUE(pallet_id, package_id)
-            )
-        ''')
-        
-        # 创建虚拟物品表
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS virtual_items (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                pallet_id INTEGER NOT NULL,
-                item_name TEXT NOT NULL,
-                quantity INTEGER DEFAULT 1,
-                unit TEXT,
-                specification TEXT,
-                remarks TEXT,
-                added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (pallet_id) REFERENCES pallets (id)
-            )
-        ''')
-        
-        conn.commit()
-        
-        # 执行数据库迁移
-        self.migrate_database(conn)
-        
-        conn.close()
-        
-        # 初始化默认设置
-        self.init_default_settings()
+        conn = None
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            
+            # 创建订单表
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS orders (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    order_number TEXT UNIQUE NOT NULL,
+                    customer_name TEXT,
+                    customer_address TEXT,
+                    customer_phone TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    status TEXT DEFAULT 'active',
+                    notes TEXT
+                )
+            ''')
+            
+            # 创建板件表
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS components (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    order_id INTEGER,
+                    component_name TEXT NOT NULL,
+                    material TEXT,
+                    finished_size TEXT,
+                    component_code TEXT UNIQUE NOT NULL,
+                    room_number TEXT,
+                    cabinet_number TEXT,
+                    q_code TEXT,
+                    a_code TEXT,
+                    b_code TEXT,
+                    package_id INTEGER,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    status TEXT DEFAULT 'pending',
+                    FOREIGN KEY (order_id) REFERENCES orders (id),
+                    FOREIGN KEY (package_id) REFERENCES packages (id)
+                )
+            ''')
+            
+            # 创建包装表
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS packages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    package_number TEXT UNIQUE NOT NULL,
+                    order_id INTEGER,
+                    component_count INTEGER DEFAULT 0,
+                    pallet_id INTEGER,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    completed_at TIMESTAMP,
+                    status TEXT DEFAULT 'open',
+                    notes TEXT,
+                    FOREIGN KEY (order_id) REFERENCES orders (id),
+                    FOREIGN KEY (pallet_id) REFERENCES pallets (id)
+                )
+            ''')
+            
+            # 创建托盘表
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS pallets (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    pallet_number TEXT UNIQUE NOT NULL,
+                    pallet_type TEXT DEFAULT 'physical',
+                    order_id INTEGER,
+                    package_count INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    sealed_at TIMESTAMP,
+                    status TEXT DEFAULT 'open',
+                    notes TEXT,
+                    virtual_items TEXT
+                )
+            ''')
+            
+            # 创建标签模板表
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS label_templates (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    template_name TEXT UNIQUE NOT NULL,
+                    template_config TEXT NOT NULL,
+                    label_width INTEGER DEFAULT 100,
+                    label_height INTEGER DEFAULT 60,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    is_default INTEGER DEFAULT 0
+                )
+            ''')
+            
+            # 创建系统设置表
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS system_settings (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    setting_key TEXT UNIQUE NOT NULL,
+                    setting_value TEXT,
+                    setting_type TEXT DEFAULT 'string',
+                    description TEXT,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            # 创建CSV导入配置表
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS import_configs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    config_name TEXT UNIQUE NOT NULL,
+                    field_mapping TEXT NOT NULL,
+                    encoding TEXT DEFAULT 'utf-8',
+                    delimiter TEXT DEFAULT ',',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    is_default INTEGER DEFAULT 0
+                )
+            ''')
+            
+            # 创建扫码配置表
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS scan_configs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    config_name TEXT UNIQUE NOT NULL,
+                    prefix_remove INTEGER DEFAULT 0,
+                    suffix_remove INTEGER DEFAULT 0,
+                    extract_start INTEGER DEFAULT 0,
+                    extract_length INTEGER DEFAULT 0,
+                    extract_mode TEXT DEFAULT 'none',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    is_default INTEGER DEFAULT 0
+                )
+            ''')
+            
+            # 创建操作日志表
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS operation_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    operation_type TEXT NOT NULL,
+                    operation_data TEXT,
+                    user_name TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    can_undo INTEGER DEFAULT 1,
+                    undo_data TEXT
+                )
+            ''')
+            
+            # 创建包装历史表（用于撤销功能）
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS package_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    package_id INTEGER,
+                    component_id INTEGER,
+                    operation TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (package_id) REFERENCES packages (id),
+                    FOREIGN KEY (component_id) REFERENCES components (id)
+                )
+            ''')
+            
+            # 创建托盘包装关联表
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS pallet_packages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    pallet_id INTEGER NOT NULL,
+                    package_id INTEGER NOT NULL,
+                    added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (pallet_id) REFERENCES pallets (id),
+                    FOREIGN KEY (package_id) REFERENCES packages (id),
+                    UNIQUE(pallet_id, package_id)
+                )
+            ''')
+            
+            # 创建虚拟物品表
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS virtual_items (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    pallet_id INTEGER NOT NULL,
+                    item_name TEXT NOT NULL,
+                    quantity INTEGER DEFAULT 1,
+                    unit TEXT,
+                    specification TEXT,
+                    remarks TEXT,
+                    added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (pallet_id) REFERENCES pallets (id)
+                )
+            ''')
+            
+            conn.commit()
+            
+            # 执行数据库迁移
+            self.migrate_database(conn)
+            
+            conn.close()
+            
+            # 初始化默认设置
+            self.init_default_settings()
+        except sqlite3.OperationalError:
+            # 发生异常时确保连接被关闭，避免Windows锁阻止后续修复
+            try:
+                if conn:
+                    conn.close()
+            except Exception:
+                pass
+            raise
     
     def migrate_database(self, conn):
         """执行数据库迁移"""
@@ -568,22 +608,29 @@ class Database:
             conn.close()
     
     def generate_pallet_number(self, is_virtual=False):
-        """生成托盘号"""
+        """生成托盘号（保证唯一，避免当天删除或并发导致重复）"""
         today = datetime.now().strftime('%Y%m%d')
         prefix = 'VT' if is_virtual else 'T'
-        
+
         conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        # 获取今天已有的托盘数量（按类型）
-        cursor.execute('''
-            SELECT COUNT(*) FROM pallets 
-            WHERE DATE(created_at) = DATE('now') AND pallet_type = ?
-        ''', ('virtual' if is_virtual else 'physical',))
-        count = cursor.fetchone()[0] + 1
-        conn.close()
-        
-        return f"{prefix}{today}{count:04d}"
+        try:
+            cursor = conn.cursor()
+            # 基础序列：当日同类型托盘计数 + 1
+            cursor.execute('''
+                SELECT COUNT(*) FROM pallets 
+                WHERE DATE(created_at) = DATE('now') AND pallet_type = ?
+            ''', ('virtual' if is_virtual else 'physical',))
+            sequence = (cursor.fetchone()[0] or 0) + 1
+
+            # 循环校验唯一性，若已存在则序列递增
+            while True:
+                pallet_number = f"{prefix}{today}{sequence:04d}"
+                cursor.execute('SELECT 1 FROM pallets WHERE pallet_number = ?', (pallet_number,))
+                if not cursor.fetchone():
+                    return pallet_number
+                sequence += 1
+        finally:
+            conn.close()
 
     def get_next_package_index(self, order_id):
         """获取该订单下包裹的下一个稳定序号（填补缺口）"""

@@ -1,0 +1,120 @@
+{
+  "日志监控分析测试": {
+    "success": true,
+    "duration": 1.078035593032837,
+    "details": {
+      "success": true,
+      "report_items": 8,
+      "optimal_chunk_size": 300
+    },
+    "timestamp": 1760407548.3898876
+  },
+  "智能分片调整测试": {
+    "success": true,
+    "duration": 2.1707894802093506,
+    "details": {
+      "success": true,
+      "transfer_id": "ae3d7a34943d1879",
+      "transfer_status": {
+        "transfer_id": "ae3d7a34943d1879",
+        "operation_type": "sync",
+        "data_type": "component",
+        "progress": 1.0,
+        "completed_items": 1,
+        "failed_items": 0,
+        "total_items": 1,
+        "status": "completed",
+        "start_time": 1760407548.393253,
+        "last_update": 1760407548.9910204,
+        "error_message": null
+      },
+      "optimal_chunk_size": 300
+    },
+    "timestamp": 1760407550.5626707
+  },
+  "数据完整性测试": {
+    "success": false,
+    "duration": 0.0009968280792236328,
+    "details": {
+      "success": false,
+      "error": "DataIntegrityManager未初始化"
+    },
+    "timestamp": 1760407550.5646584
+  },
+  "断点续传测试": {
+    "success": true,
+    "duration": 8.127370357513428,
+    "details": {
+      "success": true,
+      "transfer_id": "129d510c534badd1",
+      "incomplete_chunks_count": 0,
+      "final_status": {
+        "transfer_id": "129d510c534badd1",
+        "operation_type": "sync",
+        "data_type": "component",
+        "progress": 1.0,
+        "completed_items": 1,
+        "failed_items": 0,
+        "total_items": 1,
+        "status": "completed",
+        "start_time": 1760407550.5686593,
+        "last_update": 1760407551.0071642,
+        "error_message": null
+      }
+    },
+    "timestamp": 1760407558.6920288
+  },
+  "性能优化测试": {
+    "success": false,
+    "duration": 0.0008938312530517578,
+    "details": {
+      "success": false,
+      "error": "PerformanceOptimizer未初始化"
+    },
+    "timestamp": 1760407558.6949296
+  },
+  "监控面板测试": {
+    "success": false,
+    "duration": 0.0010035037994384766,
+    "details": {
+      "success": false,
+      "error": "SyncDashboard模块不可用"
+    },
+    "timestamp": 1760407558.695933
+  },
+  "集成功能测试": {
+    "success": false,
+    "duration": 0.001592397689819336,
+    "details": {
+      "success": false,
+      "success_rate": 33.33333333333333,
+      "integration_results": {
+        "performance_sync_integration": {
+          "performance_data_available": false,
+          "sync_metrics_available": false,
+          "error": "Required modules not initialized"
+        },
+        "integrity_adaptive_integration": {
+          "integrity_score": 0,
+          "incomplete_uploads_detected": 0,
+          "error": "Integrity manager not initialized"
+        },
+        "database_access": {
+          "sync_monitor": {
+            "accessible": false,
+            "error": "unable to open database file"
+          },
+          "adaptive_sync": {
+            "accessible": false,
+            "error": "unable to open database file"
+          },
+          "integrity": {
+            "accessible": false,
+            "error": "unable to open database file"
+          }
+        }
+      }
+    },
+    "timestamp": 1760407558.6975255
+  }
+}

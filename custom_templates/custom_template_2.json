@@ -23,9 +23,9 @@
         ]
       },
       "type": "text",
-      "x": 526.0,
-      "y": 287.0,
-      "width": 212.0,
+      "x": 486.0,
+      "y": 289.0,
+      "width": 272.0,
       "height": 36.0
     },
     {
@@ -44,12 +44,14 @@
       "data_field": "pallet_number",
       "data": "",
       "combination_config": {
-        "template": "",
-        "fields": []
+        "template": "{pallet_number}",
+        "fields": [
+          "pallet_number"
+        ]
       },
       "type": "qrcode",
-      "x": 536.0,
-      "y": 333.0,
+      "x": 560.0,
+      "y": 331.0,
       "width": 188.0,
       "height": 202.0
     },

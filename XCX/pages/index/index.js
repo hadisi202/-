@@ -6,7 +6,13 @@ Page({
     inputCode: '',
     result: null,
     loading: false,
-    searched: false
+    searched: false,
+    // 分页状态
+    pageIndex: 0, // 从 0 开始
+    pageSize: 20,
+    hasMore: false, // 是否还有下一页
+    // 累加分页：记录每一页实际加载的数量（用于上一页回滚）
+    pageLengths: []
   },
 
   onLoad: function (options) {
@@ -23,27 +29,21 @@ Page({
   // 归一化编码（板件编码最后一位改为 Q）
   normalizeCodeForSearch: function (raw) {
     const s = (raw || '').trim().toUpperCase();
-    // 组件编码通常为 13 位数字 + 1 位字母，例如 2412550406525A
     if (/^\d{13}[A-Z]$/.test(s)) {
       if (s.endsWith('Q')) return s; // 已是 Q
       return s.slice(0, 13) + 'Q';
     }
-    // 兼容 13 位纯数字的情况：补一个 Q
     if (/^\d{13}$/.test(s)) {
       return s + 'Q';
     }
     return s;
   },
 
-  // 执行查询
+  // 执行查询（首页首次或翻页）
   doSearch: function () {
     const codeRaw = this.data.inputCode;
-    
     if (!codeRaw) {
-      wx.showToast({
-        title: '请输入板件编码',
-        icon: 'none'
-      });
+      wx.showToast({ title: '请输入板件编码', icon: 'none' });
       return;
     }
 
@@ -51,69 +51,178 @@ Page({
     // 将输入框更新为归一化后的编码，便于用户确认
     this.setData({ inputCode: code });
 
+    // 首次查询或重新查询，重置分页到第一页
+    const pageIndex = 0;
+    const pageSize = 20;
+    const skip = pageIndex * pageSize;
+    const limit = pageSize;
+
     this.setData({
       loading: true,
-      result: null,
-      searched: false
+      searched: false,
+      pageIndex,
+      pageSize,
+      hasMore: false
     });
 
-    console.log('开始查询板件(归一化后):', code);
+    console.log('开始查询板件(归一化后):', code, 'skip=', skip, 'limit=', limit);
 
-    api.searchByCode(code).then(res => {
-      console.log('API原始返回结果:', res);
-      console.log('API返回结果类型:', typeof res);
-      console.log('API返回结果JSON:', JSON.stringify(res, null, 2));
-      
-      if (res && (res.data || res.component || res.package || res.pallet)) {
-        // 处理查询结果
-        const result = this.processSearchResult(res);
-        console.log('处理后的最终结果:', result);
-        console.log('处理后的结果JSON:', JSON.stringify(result, null, 2));
-        
-        this.setData({
-          result: result,
-          loading: false,
-          searched: true
-        });
-
-        if (result) {
-          wx.showToast({
-            title: '查询成功',
-            icon: 'success'
-          });
-        } else {
-          wx.showToast({
-            title: '未找到相关信息',
-            icon: 'none'
-          });
-        }
-      } else {
-        console.log('API返回数据为空或无效');
-        this.setData({
-          result: null,
-          loading: false,
-          searched: true
-        });
-        
-        wx.showToast({
-          title: '未找到相关信息',
-          icon: 'none'
-        });
+    api.searchByCode(code, { skip, limit }).then(res => {
+      const result = this.processSearchResult(res);
+      let hasMore = false;
+      let firstPageLen = 0;
+      if (result && result.type === '包裹') {
+        const total = (res && res.data && typeof res.data.component_count === 'number') ? res.data.component_count : (Array.isArray(result.components) ? result.components.length : 0);
+        const shown = Array.isArray(result.components) ? result.components.length : 0;
+        hasMore = shown < total;
+        firstPageLen = shown;
+      } else if (result && result.type === '托盘') {
+        const total = (res && res.data && typeof res.data.package_count === 'number') ? res.data.package_count : (Array.isArray(result.packages) ? result.packages.length : 0);
+        const shown = Array.isArray(result.packages) ? result.packages.length : 0;
+        hasMore = shown < total;
+        firstPageLen = shown;
       }
+
+      this.setData({
+        result: result,
+        loading: false,
+        searched: true,
+        hasMore,
+        pageLengths: firstPageLen > 0 ? [firstPageLen] : []
+      });
+
+      wx.showToast({ title: result ? '查询成功' : '未找到相关信息', icon: result ? 'success' : 'none' });
     }).catch(err => {
       console.error('查询失败:', err);
-      
-      this.setData({
-        result: null,
-        loading: false,
-        searched: true
-      });
-      
-      wx.showToast({
-        title: '查询失败，请重试',
-        icon: 'none'
-      });
+      this.setData({ loading: false, searched: true });
+      wx.showToast({ title: '查询失败，请重试', icon: 'none' });
     });
+  },
+
+  // 上一页（包裹场景：支持回滚累加状态，删除上一页追加的记录）
+  prevPage: function () {
+    const { inputCode, pageIndex, pageSize, result, pageLengths } = this.data;
+    if (!inputCode) return;
+    // 若为包裹且有累加历史，优先做前端回滚，不请求后端
+    if (result && result.type === '包裹' && Array.isArray(result.components) && pageLengths.length > 1 && pageIndex > 0) {
+      const lastLen = pageLengths[pageLengths.length - 1] || 0;
+      const trimmed = result.components.slice(0, Math.max(0, result.components.length - lastLen));
+      const newLengths = pageLengths.slice(0, pageLengths.length - 1);
+      const newIndex = Math.max(0, pageIndex - 1);
+      const total = typeof result.componentCount === 'number' ? result.componentCount : trimmed.length;
+      const hasMore = trimmed.length < total;
+      this.setData({ result: Object.assign({}, result, { components: trimmed }), pageIndex: newIndex, pageLengths: newLengths, hasMore });
+      return;
+    }
+
+    // 否则退回覆盖展示（非累加场景）
+    const newIndex = Math.max(0, pageIndex - 1);
+    const skip = newIndex * pageSize;
+    const limit = pageSize;
+    this.setData({ loading: true });
+    api.searchByCode(this.normalizeCodeForSearch(inputCode), { skip, limit }).then(res => {
+      const newResult = this.processSearchResult(res);
+      // 计算 hasMore
+      let hasMore = false;
+      let pageLen = 0;
+      if (newResult && newResult.type === '包裹') {
+        const total = (res && res.data && typeof res.data.component_count === 'number') ? res.data.component_count : (Array.isArray(newResult.components) ? newResult.components.length : 0);
+        const shown = Array.isArray(newResult.components) ? newResult.components.length : 0;
+        hasMore = shown < total;
+        pageLen = shown;
+      } else if (newResult && newResult.type === '托盘') {
+        const total = (res && res.data && typeof res.data.package_count === 'number') ? res.data.package_count : (Array.isArray(newResult.packages) ? newResult.packages.length : 0);
+        const shown = Array.isArray(newResult.packages) ? newResult.packages.length : 0;
+        hasMore = shown < total;
+        pageLen = shown;
+      }
+      const newLengths = pageLen > 0 ? [pageLen] : []
+      this.setData({ result: newResult, pageIndex: newIndex, loading: false, searched: true, hasMore, pageLengths: newLengths });
+    }).catch(err => {
+      console.error('上一页失败:', err);
+      this.setData({ loading: false });
+      wx.showToast({ title: '上一页失败', icon: 'none' });
+    });
+  },
+
+  // 下一页（保持覆盖展示）
+  nextPage: function () {
+    const { inputCode, pageIndex, pageSize } = this.data;
+    if (!inputCode) return;
+    const newIndex = pageIndex + 1;
+    const skip = newIndex * pageSize;
+    const limit = pageSize;
+    this.setData({ loading: true });
+    api.searchByCode(this.normalizeCodeForSearch(inputCode), { skip, limit }).then(res => {
+      const newResult = this.processSearchResult(res);
+      // 计算 hasMore
+      let hasMore = false;
+      if (newResult && newResult.type === '包裹') {
+        const total = (res && res.data && typeof res.data.component_count === 'number') ? res.data.component_count : (Array.isArray(newResult.components) ? newResult.components.length : 0);
+        const shown = Array.isArray(newResult.components) ? newResult.components.length : 0;
+        hasMore = shown < total;
+      } else if (newResult && newResult.type === '托盘') {
+        const total = (res && res.data && typeof res.data.package_count === 'number') ? res.data.package_count : (Array.isArray(newResult.packages) ? newResult.packages.length : 0);
+        const shown = Array.isArray(newResult.packages) ? newResult.packages.length : 0;
+        hasMore = shown < total;
+      }
+      this.setData({ result: newResult, pageIndex: newIndex, loading: false, searched: true, hasMore });
+    }).catch(err => {
+      console.error('下一页失败:', err);
+      this.setData({ loading: false });
+      wx.showToast({ title: '下一页失败', icon: 'none' });
+    });
+  },
+
+  // 加载更多：包裹与托盘均支持累加展示（包含去重与页长度记录）
+  loadMore: function () {
+    const { inputCode, pageIndex, pageSize, result, pageLengths } = this.data;
+    if (!inputCode || !result) return;
+    const newIndex = pageIndex + 1;
+    const skip = newIndex * pageSize;
+    const limit = pageSize;
+    this.setData({ loading: true });
+    api.searchByCode(this.normalizeCodeForSearch(inputCode), { skip, limit }).then(res => {
+      const nextResult = this.processSearchResult(res);
+      if (result.type === '包裹') {
+        const before = result.components || [];
+        const incoming = nextResult.components || [];
+        // 依据 componentCode 去重
+        const map = new Map();
+        for (const c of before) { if (c && (c.componentCode || c.orderNumber)) map.set(c.componentCode || `${c.orderNumber}|${c.componentName}|${c.finishedSize}`, c); }
+        for (const c of incoming) { if (c && (c.componentCode || c.orderNumber)) map.set(c.componentCode || `${c.orderNumber}|${c.componentName}|${c.finishedSize}`, c); }
+        const merged = Array.from(map.values());
+        const total = (res && res.data && typeof res.data.component_count === 'number') ? res.data.component_count : (typeof result.componentCount === 'number' ? result.componentCount : merged.length);
+        const addedLen = Math.max(0, merged.length - before.length);
+        const newLengths = pageLengths.concat([addedLen]);
+        this.setData({ result: Object.assign({}, result, { components: merged, componentCount: total }), pageIndex: newIndex, loading: false, searched: true, hasMore: merged.length < total, pageLengths: newLengths });
+      } else if (result.type === '托盘') {
+        const beforePkgs = result.packages || [];
+        const incomingPkgs = nextResult.packages || [];
+        // 依据 packageNumber 去重
+        const mapP = new Map();
+        for (const p of beforePkgs) { if (p && p.packageNumber) mapP.set(p.packageNumber, p); }
+        for (const p of incomingPkgs) { if (p && p.packageNumber) mapP.set(p.packageNumber, p); }
+        const mergedPkgs = Array.from(mapP.values());
+        const totalPkg = (res && res.data && typeof res.data.package_count === 'number') ? res.data.package_count : (typeof result.packageCount === 'number' ? result.packageCount : mergedPkgs.length);
+        const addedLen = Math.max(0, mergedPkgs.length - beforePkgs.length);
+        const newLengths = pageLengths.concat([addedLen]);
+        this.setData({ result: Object.assign({}, result, { packages: mergedPkgs, packageCount: totalPkg }), pageIndex: newIndex, loading: false, searched: true, hasMore: mergedPkgs.length < totalPkg, pageLengths: newLengths });
+      } else {
+        this.setData({ loading: false });
+      }
+    }).catch(err => {
+      console.error('加载更多失败:', err);
+      this.setData({ loading: false });
+      wx.showToast({ title: '加载更多失败', icon: 'none' });
+    });
+  },
+
+  // 新增：滚动触底自动加载更多（包裹与托盘都支持）
+  onReachBottom: function () {
+    if (this.data.hasMore) {
+      this.loadMore();
+    }
   },
 
   // 新增：扫码查询
@@ -159,7 +268,7 @@ Page({
     });
   },
 
-  // 处理搜索结果
+  // 处理搜索结果（保留原实现）
   processSearchResult: function (res) {
     if (!res) {
       return null;
@@ -224,7 +333,10 @@ Page({
     // 当查询的是托盘：添加包裹统计与列表
     if (type === 'pallet') {
       const pkgs = Array.isArray(res.packages) ? res.packages : [];
-      result.packageCount = pkgs.length;
+      // 修正：优先使用托盘记录中的 package_count 字段作为总数
+      const palRecord = res.pallet || (type === 'pallet' ? base : null);
+      const totalPkgs = (palRecord && typeof palRecord.package_count === 'number') ? palRecord.package_count : pkgs.length;
+      result.packageCount = totalPkgs;
       result.packages = pkgs.map((p, idx) => ({
         packageNumber: p.package_number || '',
         orderNumber: p.order_number || '',
@@ -261,10 +373,7 @@ Page({
           }
           return best
         })(),
-        // 新增：包裹序号（优先取后端提供的 package_index，否则为 null）
         packageIndex: (p.package_index !== undefined && p.package_index !== null) ? p.package_index : null,
-        // 新增：该包裹内板件总数（兼容 components 数组或后端的 component_count 字段）
-        // 修正：优先使用后端包裹记录的 component_count 字段；无该字段时回退到 components 长度
         componentCount: (typeof p.component_count === 'number') ? p.component_count : (Array.isArray(p.components) ? p.components.length : undefined)
       }))
     }

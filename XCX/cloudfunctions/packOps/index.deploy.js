@@ -110,26 +110,48 @@ async function findPalletById(id) {
   }
 }
 
+// 新增：统一批大小（云函数单次最大返回 100）
+const BATCH = 100
+
+// 新增：按条件抓取全量数据（count + 分批 skip/limit）
+async function fetchAll(collectionName, where = {}) {
+  const coll = db.collection(collectionName)
+  let total = 0
+  try {
+    const c = await coll.where(where).count()
+    total = Number(c && c.total) || 0
+  } catch (e) {
+    total = 0
+  }
+  const result = []
+  let skip = 0
+  while (true) {
+    const res = await coll.where(where).skip(skip).limit(BATCH).get()
+    const list = res.data || []
+    if (list.length === 0) break
+    result.push(...list)
+    skip += list.length
+    if (list.length < BATCH) break
+    if (total && skip >= total) break
+  }
+  return result
+}
 async function listComponentsInPackage(packageId) {
-  const res = await db.collection('components').where({ package_id: packageId }).limit(1000).get()
-  return res.data || []
+  return await fetchAll('components', { package_id: packageId })
 }
 
 async function listPackagesOnPallet(palletId) {
-  const res = await db.collection('packages').where({ pallet_id: palletId }).limit(1000).get()
-  return res.data || []
+  return await fetchAll('packages', { pallet_id: palletId })
 }
 
 async function listComponentsFallbackByNumber(packageNumber) {
   if (!packageNumber) return []
-  const res = await db.collection('components').where({ package_number: packageNumber }).limit(1000).get()
-  return res.data || []
+  return await fetchAll('components', { package_number: packageNumber })
 }
 
 async function listPackagesFallbackByNumber(palletNumber) {
   if (!palletNumber) return []
-  const res = await db.collection('packages').where({ pallet_number: palletNumber }).limit(1000).get()
-  return res.data || []
+  return await fetchAll('packages', { pallet_number: palletNumber })
 }
 
 async function searchByCodeCloud(code) {
@@ -387,7 +409,7 @@ function pickField(obj, keys, normalizeStr = true) {
 }
 
 async function migrateComponents({ dryRun = false } = {}) {
-  const BATCH = 1000
+  const BATCH = 100
   let skip = 0, updated = 0, scanned = 0
   while (true) {
     const res = await db.collection('components').where({}).skip(skip).limit(BATCH).get()
@@ -447,7 +469,7 @@ async function migrateComponents({ dryRun = false } = {}) {
 }
 
 async function migratePackages({ dryRun = false } = {}) {
-  const BATCH = 1000
+  const BATCH = 100
   let skip = 0, updated = 0, scanned = 0
   while (true) {
     const res = await db.collection('packages').where({}).skip(skip).limit(BATCH).get()
@@ -511,7 +533,7 @@ async function migratePackages({ dryRun = false } = {}) {
 }
 
 async function migratePallets({ dryRun = false } = {}) {
-  const BATCH = 1000
+  const BATCH = 100
   let skip = 0, updated = 0, scanned = 0
   while (true) {
     const res = await db.collection('pallets').where({}).skip(skip).limit(BATCH).get()

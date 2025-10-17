@@ -434,13 +434,56 @@ async function deletePallets(items) {
   return { removed, affected_packages }
 }
 
+// 新增：统一批大小（云函数单次最大返回 100）
+const BATCH = 100
+
+// 新增：按条件抓取全量数据（count + 分批 skip/limit）
+async function fetchAll(collectionName, where = {}) {
+  const coll = db.collection(collectionName)
+  let total = 0
+  try {
+    const c = await coll.where(where).count()
+    total = Number(c && c.total) || 0
+  } catch (e) {
+    total = 0
+  }
+  const result = []
+  let skip = 0
+  while (true) {
+    const res = await coll.where(where).skip(skip).limit(BATCH).get()
+    const list = res.data || []
+    if (list.length === 0) break
+    result.push(...list)
+    skip += list.length
+    if (list.length < BATCH) break
+    if (total && skip >= total) break
+  }
+  return result
+}
+async function listComponentsInPackage(packageId) {
+  return await fetchAll('components', { package_id: packageId })
+}
+
+async function listPackagesOnPallet(palletId) {
+  return await fetchAll('packages', { pallet_id: palletId })
+}
+
+async function listComponentsFallbackByNumber(packageNumber) {
+  if (!packageNumber) return []
+  return await fetchAll('components', { package_number: packageNumber })
+}
+
+async function listPackagesFallbackByNumber(palletNumber) {
+  if (!palletNumber) return []
+  return await fetchAll('packages', { pallet_number: palletNumber })
+}
+
 async function clearCollections(collections) {
   const targets = Array.isArray(collections) && collections.length > 0 ? collections : ['components','packages','pallets']
   const cleared = {}
   for (const name of targets) {
     let removed = 0
     try {
-      const BATCH = 1000
       let skip = 0
       while (true) {
         const res = await db.collection(name).where({}).skip(skip).limit(BATCH).get()
@@ -564,7 +607,7 @@ function pickField(obj, keys, normalizeStr = true) {
 }
 
 async function migrateComponents({ dryRun = false } = {}) {
-  const BATCH = 1000
+  const BATCH = 100
   let skip = 0, updated = 0, scanned = 0
   while (true) {
     const res = await db.collection('components').where({}).skip(skip).limit(BATCH).get()
@@ -624,7 +667,7 @@ async function migrateComponents({ dryRun = false } = {}) {
 }
 
 async function migratePackages({ dryRun = false } = {}) {
-  const BATCH = 1000
+  const BATCH = 100
   let skip = 0, updated = 0, scanned = 0
   while (true) {
     const res = await db.collection('packages').where({}).skip(skip).limit(BATCH).get()
@@ -688,7 +731,7 @@ async function migratePackages({ dryRun = false } = {}) {
 }
 
 async function migratePallets({ dryRun = false } = {}) {
-  const BATCH = 1000
+  const BATCH = 100
   let skip = 0, updated = 0, scanned = 0
   while (true) {
     const res = await db.collection('pallets').where({}).skip(skip).limit(BATCH).get()

@@ -6,14 +6,19 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTableWidget,
                              QTableWidgetItem, QPushButton, QLabel, QComboBox,
                              QDialog, QDialogButtonBox, QMessageBox, QHeaderView,
                              QLineEdit, QDateEdit, QTextEdit, QSplitter, QFrame,
-                             QGroupBox, QGridLayout, QCheckBox, QRadioButton)
+                             QGroupBox, QGridLayout, QCheckBox, QRadioButton,
+                             QMenu, QAction, QFileDialog, QApplication)
 from PyQt5.QtCore import Qt, QDate, pyqtSignal, QTimer
-from PyQt5.QtGui import QFont, QColor
+from PyQt5.QtGui import QFont, QColor, QPixmap, QImage
+import numpy as np
+from qr_handler import QRCodeHandler
 from database import db
 from datetime import datetime
 from order_manager import OrderManager
 from order_management import OrderSelectionDialog
 import traceback
+import sqlite3
+import time
 from error_handling import Prompt
 from status_utils import package_status_cn, pallet_status_cn, normalize_package_status
 try:
@@ -170,8 +175,20 @@ class PalletManagement(QWidget):
         self.pallets_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.pallets_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.pallets_table.itemSelectionChanged.connect(self.on_pallet_selected)
+        # 新增：交替行颜色与选中高亮样式
+        self.pallets_table.setAlternatingRowColors(True)
+        self.pallets_table.setStyleSheet("""
+        QTableWidget::item:selected { background-color: #3498db; color: #ffffff; }
+        QTableWidget { selection-background-color: #3498db; }
+        """)
         # 设置托盘列表的最小高度
         self.pallets_table.setMinimumHeight(200)
+        # 右键菜单：托盘二维码预览/保存/复制
+        try:
+            self.pallets_table.setContextMenuPolicy(Qt.CustomContextMenu)
+            self.pallets_table.customContextMenuRequested.connect(self.on_pallets_context_menu)
+        except Exception:
+            pass
         tray_layout.addWidget(self.pallets_table)
 
         # 托盘分页工具栏
@@ -501,7 +518,20 @@ class PalletManagement(QWidget):
     def on_scan_input_changed(self):
         """扫描输入变化时的处理"""
         text = self.scan_input.text().strip()
-        self.manual_scan_btn.setEnabled(len(text) > 0)
+        # 封托/关闭状态下禁用手动添加
+        is_sealed = False
+        try:
+            if getattr(self, 'current_pallet_id', None):
+                conn = db.get_connection()
+                cur = conn.cursor()
+                cur.execute('SELECT status FROM pallets WHERE id = ?', (self.current_pallet_id,))
+                r = cur.fetchone()
+                conn.close()
+                if r and str(r[0]).strip().lower() in ('sealed', 'closed'):
+                    is_sealed = True
+        except Exception:
+            pass
+        self.manual_scan_btn.setEnabled(len(text) > 0 and not is_sealed)
     
     def process_scan_input(self):
         """处理扫描输入"""
@@ -527,6 +557,21 @@ class PalletManagement(QWidget):
         try:
             conn = db.get_connection()
             cursor = conn.cursor()
+            # 新增：封托/关闭托盘禁止入托
+            try:
+                cursor.execute('SELECT status FROM pallets WHERE id = ?', (self.current_pallet_id,))
+                pr = cursor.fetchone()
+                if pr and str(pr[0]).strip().lower() in ('sealed', 'closed'):
+                    self.scan_status_label.setText("状态: 当前托盘已封托或已关闭，不能入托")
+                    self.scan_status_label.setStyleSheet("color: #e74c3c; font-size: 12px;")
+                    try:
+                        Prompt.show_warning("当前托盘已封托或已关闭，不能添加包裹")
+                    except Exception:
+                        pass
+                    conn.close()
+                    return
+            except Exception:
+                pass
             
             # 检查包裹是否存在
             cursor.execute('SELECT id, pallet_id, order_id, status FROM packages WHERE package_number = ?', (package_number,))
@@ -580,9 +625,19 @@ class PalletManagement(QWidget):
                     conn.close()
                     return
             
-            # 更新包裹的托盘ID
-            cursor.execute('UPDATE packages SET pallet_id = ? WHERE id = ?', (self.current_pallet_id, package_id))
-            conn.commit()
+            # 更新包裹的托盘ID（加入锁重试）
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    cursor.execute('UPDATE packages SET pallet_id = ? WHERE id = ?', (self.current_pallet_id, package_id))
+                    conn.commit()
+                    break
+                except sqlite3.OperationalError as e:
+                    if 'database is locked' in str(e) and attempt < max_retries - 1:
+                        time.sleep(0.3)
+                        continue
+                    else:
+                        raise
             conn.close()
 
             # 审计日志
@@ -722,6 +777,25 @@ class PalletManagement(QWidget):
                 # 存储托盘ID用于后续操作
                 self.pallets_table.item(row, 0).setData(Qt.UserRole, pallet[0])
                 
+                # 新增：根据状态设置整行背景色
+                try:
+                    status_raw = str(pallet[3] or '').strip().lower()
+                    if status_raw == 'open':
+                        bg = QColor(232, 245, 233)  # 绿色淡底
+                    elif status_raw == 'sealed':
+                        bg = QColor(255, 249, 196)  # 黄色淡底
+                    elif status_raw == 'closed':
+                        bg = QColor(236, 240, 241)  # 灰色淡底
+                    else:
+                        bg = None
+                    if bg is not None:
+                        for c in range(5):
+                            it = self.pallets_table.item(row, c)
+                            if it:
+                                it.setBackground(bg)
+                except Exception:
+                    pass
+                
         except Exception as e:
             QMessageBox.critical(self, "错误", f"加载托盘列表失败：{str(e)}")
             traceback.print_exc()
@@ -740,15 +814,119 @@ class PalletManagement(QWidget):
             # 启用编辑托盘按钮
             if hasattr(self, 'edit_tray_btn'):
                 self.edit_tray_btn.setEnabled(True)
-            # 根据托盘状态控制包裹操作
+            # 根据托盘状态控制包裹操作与扫描
             status_item = self.pallets_table.item(current_row, 4)
             status_text = status_item.text() if status_item else ''
             is_sealed = status_text in ("已封托", "已关闭")
             if hasattr(self, 'move_package_btn'):
                 self.move_package_btn.setEnabled(not is_sealed)
+            # 删除按钮：封托/关闭时禁用
+            has_selection = len(self._get_selected_package_numbers()) > 0
             if hasattr(self, 'delete_package_btn'):
-                has_selection = len(self._get_selected_package_numbers()) > 0
-                self.delete_package_btn.setEnabled(has_selection)
+                self.delete_package_btn.setEnabled(has_selection and not is_sealed)
+            # 扫描输入与手动添加：封托/关闭时禁用
+            if hasattr(self, 'scan_input'):
+                self.scan_input.setEnabled(not is_sealed)
+
+    def _pil_to_qpixmap(self, pil_image):
+        try:
+            arr = np.array(pil_image.convert('RGB'))
+            h, w, ch = arr.shape
+            bytes_per_line = ch * w
+            qt_image = QImage(arr.data, w, h, bytes_per_line, QImage.Format_RGB888)
+            return QPixmap.fromImage(qt_image)
+        except Exception:
+            return QPixmap()
+
+    def on_pallets_context_menu(self, pos):
+        """托盘列表右键菜单：预览/保存托盘二维码、复制托盘号"""
+        try:
+            item = self.pallets_table.itemAt(pos)
+            if not item:
+                return
+            row = item.row()
+            num_item = self.pallets_table.item(row, 0)
+            if not num_item:
+                return
+            pallet_number = num_item.text().strip()
+            if not pallet_number:
+                return
+
+            menu = QMenu(self)
+            act_preview = QAction("预览托盘二维码", self)
+            act_save = QAction("保存托盘二维码", self)
+            act_copy = QAction("复制托盘号", self)
+            menu.addAction(act_preview)
+            menu.addAction(act_save)
+            menu.addSeparator()
+            menu.addAction(act_copy)
+
+            action = menu.exec_(self.pallets_table.viewport().mapToGlobal(pos))
+            if not action:
+                return
+
+            if action == act_copy:
+                QApplication.clipboard().setText(pallet_number)
+                QMessageBox.information(self, "已复制", f"托盘号 {pallet_number} 已复制到剪贴板")
+                return
+
+            # 生成二维码图片（带托盘号文字）
+            handler = QRCodeHandler()
+            try:
+                # 使用通用生成：二维码 + 文本（托盘号）
+                pil_img = handler.create_qr_code(pallet_number)
+                # 叠加文字区域
+                from PIL import Image, ImageDraw, ImageFont
+                qr_size = handler.settings.get("qr_size", 200)
+                text_height = 60
+                total_height = qr_size + text_height
+                img = Image.new('RGB', (qr_size, total_height), 'white')
+                img.paste(pil_img, (0, 0))
+                draw = ImageDraw.Draw(img)
+                try:
+                    font = ImageFont.truetype("arial.ttf", 16)
+                except Exception:
+                    font = ImageFont.load_default()
+                draw.text((10, qr_size + 10), f"托盘号: {pallet_number}", fill='black', font=font)
+                pil_img = img
+            except Exception:
+                # 回退：仅二维码
+                pil_img = handler.create_qr_code(pallet_number)
+
+            if action == act_preview:
+                # 简单预览对话框
+                dlg = QDialog(self)
+                dlg.setWindowTitle("托盘二维码预览")
+                dlg.resize(360, 420)
+                vbox = QVBoxLayout(dlg)
+                lbl = QLabel()
+                lbl.setAlignment(Qt.AlignCenter)
+                vbox.addWidget(lbl)
+                btns = QHBoxLayout()
+                btn_copy = QPushButton("复制托盘号")
+                btn_close = QPushButton("关闭")
+                btns.addStretch()
+                btns.addWidget(btn_copy)
+                btns.addWidget(btn_close)
+                vbox.addLayout(btns)
+                lbl.setPixmap(self._pil_to_qpixmap(pil_img))
+                btn_copy.clicked.connect(lambda: QApplication.clipboard().setText(pallet_number))
+                btn_close.clicked.connect(dlg.accept)
+                dlg.exec_()
+            elif action == act_save:
+                default_name = f"pallet_{pallet_number}.png"
+                fname, _ = QFileDialog.getSaveFileName(self, "保存托盘二维码", default_name, "PNG 图片 (*.png)")
+                if fname:
+                    try:
+                        pil_img.save(fname, format='PNG')
+                        QMessageBox.information(self, "成功", f"已保存到\n{fname}")
+                    except Exception as e:
+                        QMessageBox.critical(self, "错误", f"保存失败：{str(e)}")
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"操作失败：\n{str(e)}")
+            if hasattr(self, 'manual_scan_btn'):
+                text = self.scan_input.text().strip() if hasattr(self, 'scan_input') else ""
+                self.manual_scan_btn.setEnabled(not is_sealed and len(text) > 0)
         else:
             self.current_pallet_id = None
             self.pallet_info_label.setText("请选择托盘查看详细信息")
@@ -763,6 +941,11 @@ class PalletManagement(QWidget):
                 self.move_package_btn.setEnabled(False)
             if hasattr(self, 'delete_package_btn'):
                 self.delete_package_btn.setEnabled(False)
+            # 禁用扫描输入与手动添加
+            if hasattr(self, 'scan_input'):
+                self.scan_input.setEnabled(False)
+            if hasattr(self, 'manual_scan_btn'):
+                self.manual_scan_btn.setEnabled(False)
 
     def _get_selected_package_numbers(self):
         """获取包裹列表中选中的包裹号集合"""
@@ -790,7 +973,7 @@ class PalletManagement(QWidget):
             if hasattr(self, 'move_package_btn'):
                 self.move_package_btn.setEnabled(has_selection and not is_sealed)
             if hasattr(self, 'delete_package_btn'):
-                self.delete_package_btn.setEnabled(has_selection)
+                self.delete_package_btn.setEnabled(has_selection and not is_sealed)
         except Exception:
             # 静默失败，避免影响用户操作
             pass
@@ -908,7 +1091,7 @@ class PalletManagement(QWidget):
             QMessageBox.critical(self, "错误", f"移动包裹失败：{str(e)}")
 
     def delete_packages(self):
-        """移除托盘：将选中的包裹从当前托盘中移出；若托盘为封托/关闭，先解托并记录日志后再移出"""
+        """移除托盘：将选中的包裹从当前托盘中移出；封托/关闭时禁止移出"""
         try:
             if not self.current_pallet_id:
                 QMessageBox.information(self, "提示", "请先选择托盘")
@@ -925,33 +1108,11 @@ class PalletManagement(QWidget):
                 QMessageBox.information(self, "提示", "请在托盘包裹列表中选择要移出的包裹")
                 return
 
-            # 已封托/已关闭需先解托
+            # 新增：封托/关闭时直接禁止移出
             if status in ('sealed', 'closed'):
-                reply = QMessageBox.question(
-                    self,
-                    "确认",
-                    f"当前托盘已封托，需先解托后才能移除选中包裹。\n是否立即解托托盘 {pallet_number} 并移除?",
-                    QMessageBox.Yes | QMessageBox.No,
-                    QMessageBox.Yes
-                )
-                if reply == QMessageBox.No:
-                    conn.close()
-                    return
-                # 执行解托
-                cur.execute('''
-                    UPDATE pallets 
-                    SET status = 'open', sealed_at = NULL
-                    WHERE id = ?
-                ''', (self.current_pallet_id,))
-                # 记录操作日志
-                try:
-                    db.log_operation('unseal_pallet', {
-                        'pallet_id': self.current_pallet_id,
-                        'pallet_number': pallet_number,
-                        'time': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    })
-                except Exception:
-                    pass
+                conn.close()
+                QMessageBox.information(self, "提示", "当前托盘已封托或已关闭，不能移出包裹")
+                return
 
             # 执行移出：将选中包裹的 pallet_id 置为 NULL
             removed = 0
@@ -1534,12 +1695,29 @@ class PalletManagement(QWidget):
             except Exception:
                 next_index = None
 
-            cursor.execute('''
-                INSERT INTO pallets (pallet_number, pallet_type, status, created_at, order_id, pallet_index)
-                VALUES (?, ?, 'open', datetime('now'), ?, ?)
-            ''', (pallet_number, pallet_type, self.current_order_id, next_index))
-
-            conn.commit()
+            # 插入加入锁重试与唯一冲突自愈
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    cursor.execute('''
+                        INSERT INTO pallets (pallet_number, pallet_type, status, created_at, order_id, pallet_index)
+                        VALUES (?, ?, 'open', datetime('now'), ?, ?)
+                    ''', (pallet_number, pallet_type, self.current_order_id, next_index))
+                    conn.commit()
+                    break
+                except sqlite3.IntegrityError as e:
+                    # 托盘号唯一约束冲突，重新生成托盘号后重试
+                    if 'UNIQUE constraint failed: pallets.pallet_number' in str(e):
+                        pallet_number = db.generate_pallet_number(is_virtual=is_virtual)
+                        continue
+                    else:
+                        raise
+                except sqlite3.OperationalError as e:
+                    if 'database is locked' in str(e) and attempt < max_retries - 1:
+                        time.sleep(0.3)
+                        continue
+                    else:
+                        raise
             conn.close()
 
             # 记录操作日志
@@ -1694,7 +1872,7 @@ class PalletManagement(QWidget):
                 from real_time_cloud_sync import get_sync_service
                 svc = getattr(self, 'cloud_sync_service', None) or get_sync_service()
                 if pallet_number:
-                    svc.trigger_sync('delete_pallets', {'items': [{'pallet_number': pallet_number}]})
+                    svc.trigger_sync('delete_pallets', {'items': [{'pallet_number': pallet_number}]}, force=True)
             except Exception as e:
                 print(f"触发云端删除托盘失败: {e}")
 
@@ -1713,7 +1891,7 @@ class PalletManagement(QWidget):
                 from real_time_cloud_sync import get_sync_service
                 svc = getattr(self, 'cloud_sync_service', None) or get_sync_service()
                 if pallet_number:
-                    svc.trigger_sync('delete_pallets', {'items': [{'pallet_number': pallet_number}]})
+                    svc.trigger_sync('delete_pallets', {'items': [{'pallet_number': pallet_number}]}, force=True)
             except Exception as e:
                 print(f"触发云端删除托盘失败: {e}")
             

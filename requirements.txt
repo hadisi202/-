@@ -1,7 +1,0 @@
-PyQt5
-openpyxl
-qrcode
-Pillow
-pandas
-numpy
-Flask

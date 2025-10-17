@@ -1,0 +1,33 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# Build artifacts
+build/
+dist/
+
+# Logs
+*.log
+
+# Databases and generated data
+*.db
+*.db.*
+backups/
+*.zip
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Node / MiniApp (if any)
+node_modules/
+
+# Do not ignore spec: tracked for reproducible builds
+# *.spec

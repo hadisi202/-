@@ -10,12 +10,28 @@ from real_time_cloud_sync import get_sync_service
 class CloudEnabledDatabase:
     def __init__(self, db_path: str = 'packing_system.db'):
         self.db_path = db_path
+        # 在进行任何直接 sqlite3.connect 之前，先用 Database 类修复/初始化无效文件
+        try:
+            from database import Database as _DB
+            _DB(self.db_path)
+        except Exception:
+            pass
         self.sync_service = get_sync_service(db_path)
         self._init_database()
         
+    def _get_connection(self):
+        """统一获取数据库连接，优先使用 Database 修复/初始化后的连接"""
+        try:
+            from database import Database as _DB
+            return _DB(self.db_path).get_connection()
+        except Exception:
+            # 回退到直接连接
+            import sqlite3 as _sqlite3
+            return _sqlite3.connect(self.db_path)
+        
     def _init_database(self):
         """初始化数据库"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         cursor = conn.cursor()
         
         # 板件表
@@ -97,7 +113,7 @@ class CloudEnabledDatabase:
         
     def insert_component(self, component_data: Dict) -> int:
         """插入板件数据"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         cursor = conn.cursor()
         
         # 添加更新时间
@@ -122,7 +138,7 @@ class CloudEnabledDatabase:
         
     def update_component(self, component_code: str, update_data: Dict) -> bool:
         """更新板件数据"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         cursor = conn.cursor()
         
         # 添加更新时间
@@ -152,7 +168,7 @@ class CloudEnabledDatabase:
         
     def insert_package(self, package_data: Dict) -> int:
         """插入包裹数据"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         cursor = conn.cursor()
         
         # 添加更新时间
@@ -177,7 +193,7 @@ class CloudEnabledDatabase:
         
     def update_package(self, package_number: str, update_data: Dict) -> bool:
         """更新包裹数据"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         cursor = conn.cursor()
         
         # 添加更新时间
@@ -207,7 +223,7 @@ class CloudEnabledDatabase:
         
     def insert_pallet(self, pallet_data: Dict) -> int:
         """插入托盘数据"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         cursor = conn.cursor()
         
         # 添加更新时间
@@ -232,7 +248,7 @@ class CloudEnabledDatabase:
         
     def update_pallet(self, pallet_number: str, update_data: Dict) -> bool:
         """更新托盘数据"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         cursor = conn.cursor()
         
         # 添加更新时间
@@ -262,7 +278,7 @@ class CloudEnabledDatabase:
         
     def get_component_by_code(self, component_code: str) -> Optional[Dict]:
         """根据编码获取板件"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         
@@ -275,7 +291,7 @@ class CloudEnabledDatabase:
         
     def get_package_by_number(self, package_number: str) -> Optional[Dict]:
         """根据编号获取包裹"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         
@@ -289,7 +305,7 @@ class CloudEnabledDatabase:
     def get_pallet_by_number(self, pallet_number: str):
         conn = None
         try:
-            conn = sqlite3.connect(self.db_path, timeout=5.0)
+            conn = self._get_connection()
             cur = conn.cursor()
             try:
                 cur.execute('PRAGMA busy_timeout = 5000')
@@ -308,7 +324,7 @@ class CloudEnabledDatabase:
     def get_pallet_packages(self, pallet_number: str):
         conn = None
         try:
-            conn = sqlite3.connect(self.db_path, timeout=5.0)
+            conn = self._get_connection()
             cur = conn.cursor()
             try:
                 cur.execute('PRAGMA busy_timeout = 5000')
@@ -333,7 +349,7 @@ class CloudEnabledDatabase:
                     pass
     def get_package_components(self, package_id: int) -> List[Dict]:
         """获取包裹内的板件"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         
@@ -346,7 +362,7 @@ class CloudEnabledDatabase:
         
     def get_pallet_packages(self, pallet_id: int) -> List[Dict]:
         """获取托盘内的包裹"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         

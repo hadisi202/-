@@ -1,0 +1,200 @@
+2025-10-14 09:55:40,966 - OptimizedSyncTester - ERROR - 初始化测试模块失败: unable to open database file
+2025-10-14 09:55:40,967 - OptimizedSyncTester - INFO - 开始运行优化同步功能测试套件...
+2025-10-14 09:55:40,967 - OptimizedSyncTester - INFO - \n==================================================
+2025-10-14 09:55:40,968 - OptimizedSyncTester - INFO - 开始测试: 日志监控分析测试
+2025-10-14 09:55:40,968 - OptimizedSyncTester - INFO - ==================================================
+2025-10-14 09:55:40,969 - OptimizedSyncTester - INFO - 测试实时日志监控和分析...
+2025-10-14 09:55:41,048 - OptimizedSyncTester - ERROR - 日志监控测试失败: 'SyncMonitor' object has no attribute 'get_transfer_metrics'
+2025-10-14 09:55:41,050 - OptimizedSyncTester - INFO - 日志监控分析测试: ❌ 失败 (耗时: 0.08秒)
+2025-10-14 09:55:41,050 - OptimizedSyncTester - INFO - \n==================================================
+2025-10-14 09:55:41,050 - OptimizedSyncTester - INFO - 开始测试: 智能分片调整测试
+2025-10-14 09:55:41,050 - OptimizedSyncTester - INFO - ==================================================
+2025-10-14 09:55:41,051 - OptimizedSyncTester - INFO - 测试智能分片调整算法...
+2025-10-14 09:55:41,051 - OptimizedSyncTester - ERROR - 智能分片测试失败: AdaptiveSync.start_adaptive_transfer() got an unexpected keyword argument 'data'
+2025-10-14 09:55:41,052 - OptimizedSyncTester - INFO - 智能分片调整测试: ❌ 失败 (耗时: 0.00秒)
+2025-10-14 09:55:41,052 - OptimizedSyncTester - INFO - \n==================================================
+2025-10-14 09:55:41,052 - OptimizedSyncTester - INFO - 开始测试: 数据完整性测试
+2025-10-14 09:55:41,052 - OptimizedSyncTester - INFO - ==================================================
+2025-10-14 09:55:41,053 - OptimizedSyncTester - INFO - 测试数据完整性保障...
+2025-10-14 09:55:41,053 - OptimizedSyncTester - ERROR - 数据完整性测试失败: 'OptimizedSyncTester' object has no attribute 'integrity_manager'
+2025-10-14 09:55:41,053 - OptimizedSyncTester - INFO - 数据完整性测试: ❌ 失败 (耗时: 0.00秒)
+2025-10-14 09:55:41,054 - OptimizedSyncTester - INFO - \n==================================================
+2025-10-14 09:55:41,054 - OptimizedSyncTester - INFO - 开始测试: 断点续传测试
+2025-10-14 09:55:41,055 - OptimizedSyncTester - INFO - ==================================================
+2025-10-14 09:55:41,055 - OptimizedSyncTester - INFO - 测试断点续传功能...
+2025-10-14 09:55:41,055 - OptimizedSyncTester - ERROR - 断点续传测试失败: AdaptiveSync.start_adaptive_transfer() got an unexpected keyword argument 'data'
+2025-10-14 09:55:41,056 - OptimizedSyncTester - INFO - 断点续传测试: ❌ 失败 (耗时: 0.00秒)
+2025-10-14 09:55:41,057 - OptimizedSyncTester - INFO - \n==================================================
+2025-10-14 09:55:41,057 - OptimizedSyncTester - INFO - 开始测试: 性能优化测试
+2025-10-14 09:55:41,058 - OptimizedSyncTester - INFO - ==================================================
+2025-10-14 09:55:41,058 - OptimizedSyncTester - INFO - 测试性能优化功能...
+2025-10-14 09:55:41,058 - OptimizedSyncTester - ERROR - 性能优化测试失败: 'OptimizedSyncTester' object has no attribute 'performance_optimizer'
+2025-10-14 09:55:41,058 - OptimizedSyncTester - INFO - 性能优化测试: ❌ 失败 (耗时: 0.00秒)
+2025-10-14 09:55:41,059 - OptimizedSyncTester - INFO - \n==================================================
+2025-10-14 09:55:41,059 - OptimizedSyncTester - INFO - 开始测试: 监控面板测试
+2025-10-14 09:55:41,059 - OptimizedSyncTester - INFO - ==================================================
+2025-10-14 09:55:41,060 - OptimizedSyncTester - INFO - 测试监控面板功能...
+2025-10-14 09:55:41,060 - OptimizedSyncTester - ERROR - 监控面板测试失败: name 'SyncDashboard' is not defined
+2025-10-14 09:55:41,060 - OptimizedSyncTester - INFO - 监控面板测试: ❌ 失败 (耗时: 0.00秒)
+2025-10-14 09:55:41,060 - OptimizedSyncTester - INFO - \n==================================================
+2025-10-14 09:55:41,061 - OptimizedSyncTester - INFO - 开始测试: 集成功能测试
+2025-10-14 09:55:41,061 - OptimizedSyncTester - INFO - ==================================================
+2025-10-14 09:55:41,061 - OptimizedSyncTester - INFO - 测试各模块集成功能...
+2025-10-14 09:55:41,061 - OptimizedSyncTester - INFO - 1. 测试监控模块与性能优化器集成...
+2025-10-14 09:55:41,062 - OptimizedSyncTester - ERROR - 集成测试失败: 'OptimizedSyncTester' object has no attribute 'performance_optimizer'
+2025-10-14 09:55:41,062 - OptimizedSyncTester - INFO - 集成功能测试: ❌ 失败 (耗时: 0.00秒)
+2025-10-14 09:55:41,062 - OptimizedSyncTester - INFO - \n============================================================
+2025-10-14 09:55:41,062 - OptimizedSyncTester - INFO - 优化同步功能测试报告
+2025-10-14 09:55:41,063 - OptimizedSyncTester - INFO - ============================================================
+2025-10-14 09:55:41,063 - OptimizedSyncTester - INFO - 测试总数: 7
+2025-10-14 09:55:41,063 - OptimizedSyncTester - INFO - 通过测试: 0
+2025-10-14 09:55:41,064 - OptimizedSyncTester - INFO - 失败测试: 7
+2025-10-14 09:55:41,064 - OptimizedSyncTester - INFO - 成功率: 0.0%
+2025-10-14 09:55:41,064 - OptimizedSyncTester - INFO - \n详细结果:
+2025-10-14 09:55:41,065 - OptimizedSyncTester - INFO -   日志监控分析测试: ❌ 失败 (0.08秒)
+2025-10-14 09:55:41,066 - OptimizedSyncTester - INFO -   智能分片调整测试: ❌ 失败 (0.00秒)
+2025-10-14 09:55:41,068 - OptimizedSyncTester - INFO -   数据完整性测试: ❌ 失败 (0.00秒)
+2025-10-14 09:55:41,068 - OptimizedSyncTester - INFO -   断点续传测试: ❌ 失败 (0.00秒)
+2025-10-14 09:55:41,068 - OptimizedSyncTester - INFO -   性能优化测试: ❌ 失败 (0.00秒)
+2025-10-14 09:55:41,069 - OptimizedSyncTester - INFO -   监控面板测试: ❌ 失败 (0.00秒)
+2025-10-14 09:55:41,069 - OptimizedSyncTester - INFO -   集成功能测试: ❌ 失败 (0.00秒)
+2025-10-14 09:55:41,071 - OptimizedSyncTester - INFO - \n详细报告已保存到: e:/Trae/021/本地端/optimization_test_report.json
+2025-10-14 09:55:41,071 - OptimizedSyncTester - INFO - \n改进建议:
+2025-10-14 09:55:41,072 - OptimizedSyncTester - INFO -   ⚠️  有 7 个测试失败，建议检查相关模块。
+2025-10-14 09:55:41,072 - OptimizedSyncTester - INFO -   🔧 需要进一步优化和调试。
+2025-10-14 10:01:02,532 - OptimizedSyncTester - ERROR - 初始化测试模块失败: unable to open database file
+2025-10-14 10:01:02,538 - OptimizedSyncTester - INFO - 开始运行优化同步功能测试套件...
+2025-10-14 10:01:02,539 - OptimizedSyncTester - INFO - \n==================================================
+2025-10-14 10:01:02,540 - OptimizedSyncTester - INFO - 开始测试: 日志监控分析测试
+2025-10-14 10:01:02,540 - OptimizedSyncTester - INFO - ==================================================
+2025-10-14 10:01:02,541 - OptimizedSyncTester - INFO - 测试实时日志监控和分析...
+2025-10-14 10:01:02,541 - OptimizedSyncTester - INFO - 日志监控分析测试: ❌ 失败 (耗时: 0.00秒)
+2025-10-14 10:01:02,542 - OptimizedSyncTester - INFO - \n==================================================
+2025-10-14 10:01:02,542 - OptimizedSyncTester - INFO - 开始测试: 智能分片调整测试
+2025-10-14 10:01:02,543 - OptimizedSyncTester - INFO - ==================================================
+2025-10-14 10:01:02,543 - OptimizedSyncTester - INFO - 测试智能分片调整算法...
+2025-10-14 10:01:02,544 - OptimizedSyncTester - INFO - 智能分片调整测试: ❌ 失败 (耗时: 0.00秒)
+2025-10-14 10:01:02,544 - OptimizedSyncTester - INFO - \n==================================================
+2025-10-14 10:01:02,544 - OptimizedSyncTester - INFO - 开始测试: 数据完整性测试
+2025-10-14 10:01:02,545 - OptimizedSyncTester - INFO - ==================================================
+2025-10-14 10:01:02,546 - OptimizedSyncTester - INFO - 测试数据完整性保障...
+2025-10-14 10:01:02,546 - OptimizedSyncTester - INFO - 数据完整性测试: ❌ 失败 (耗时: 0.00秒)
+2025-10-14 10:01:02,547 - OptimizedSyncTester - INFO - \n==================================================
+2025-10-14 10:01:02,547 - OptimizedSyncTester - INFO - 开始测试: 断点续传测试
+2025-10-14 10:01:02,547 - OptimizedSyncTester - INFO - ==================================================
+2025-10-14 10:01:02,548 - OptimizedSyncTester - INFO - 测试断点续传功能...
+2025-10-14 10:01:02,548 - OptimizedSyncTester - INFO - 断点续传测试: ❌ 失败 (耗时: 0.00秒)
+2025-10-14 10:01:02,548 - OptimizedSyncTester - INFO - \n==================================================
+2025-10-14 10:01:02,556 - OptimizedSyncTester - INFO - 开始测试: 性能优化测试
+2025-10-14 10:01:02,556 - OptimizedSyncTester - INFO - ==================================================
+2025-10-14 10:01:02,557 - OptimizedSyncTester - INFO - 测试性能优化功能...
+2025-10-14 10:01:02,557 - OptimizedSyncTester - INFO - 性能优化测试: ❌ 失败 (耗时: 0.00秒)
+2025-10-14 10:01:02,557 - OptimizedSyncTester - INFO - \n==================================================
+2025-10-14 10:01:02,558 - OptimizedSyncTester - INFO - 开始测试: 监控面板测试
+2025-10-14 10:01:02,558 - OptimizedSyncTester - INFO - ==================================================
+2025-10-14 10:01:02,558 - OptimizedSyncTester - INFO - 测试监控面板功能...
+2025-10-14 10:01:02,559 - OptimizedSyncTester - ERROR - 监控面板测试失败: name 'SyncDashboard' is not defined
+2025-10-14 10:01:02,559 - OptimizedSyncTester - INFO - 监控面板测试: ❌ 失败 (耗时: 0.00秒)
+2025-10-14 10:01:02,560 - OptimizedSyncTester - INFO - \n==================================================
+2025-10-14 10:01:02,560 - OptimizedSyncTester - INFO - 开始测试: 集成功能测试
+2025-10-14 10:01:02,561 - OptimizedSyncTester - INFO - ==================================================
+2025-10-14 10:01:02,561 - OptimizedSyncTester - INFO - 测试各模块集成功能...
+2025-10-14 10:01:02,561 - OptimizedSyncTester - INFO - 1. 测试监控模块与性能优化器集成...
+2025-10-14 10:01:02,562 - OptimizedSyncTester - INFO - 2. 测试完整性管理与自适应同步集成...
+2025-10-14 10:01:02,562 - OptimizedSyncTester - INFO - 3. 测试数据库访问集成...
+2025-10-14 10:01:02,563 - OptimizedSyncTester - INFO - 集成测试完成，成功率: 33.3%
+2025-10-14 10:01:02,564 - OptimizedSyncTester - INFO - 集成功能测试: ❌ 失败 (耗时: 0.00秒)
+2025-10-14 10:01:02,564 - OptimizedSyncTester - INFO - \n============================================================
+2025-10-14 10:01:02,564 - OptimizedSyncTester - INFO - 优化同步功能测试报告
+2025-10-14 10:01:02,565 - OptimizedSyncTester - INFO - ============================================================
+2025-10-14 10:01:02,571 - OptimizedSyncTester - INFO - 测试总数: 7
+2025-10-14 10:01:02,572 - OptimizedSyncTester - INFO - 通过测试: 0
+2025-10-14 10:01:02,572 - OptimizedSyncTester - INFO - 失败测试: 7
+2025-10-14 10:01:02,573 - OptimizedSyncTester - INFO - 成功率: 0.0%
+2025-10-14 10:01:02,573 - OptimizedSyncTester - INFO - \n详细结果:
+2025-10-14 10:01:02,573 - OptimizedSyncTester - INFO -   日志监控分析测试: ❌ 失败 (0.00秒)
+2025-10-14 10:01:02,574 - OptimizedSyncTester - INFO -   智能分片调整测试: ❌ 失败 (0.00秒)
+2025-10-14 10:01:02,574 - OptimizedSyncTester - INFO -   数据完整性测试: ❌ 失败 (0.00秒)
+2025-10-14 10:01:02,575 - OptimizedSyncTester - INFO -   断点续传测试: ❌ 失败 (0.00秒)
+2025-10-14 10:01:02,575 - OptimizedSyncTester - INFO -   性能优化测试: ❌ 失败 (0.00秒)
+2025-10-14 10:01:02,575 - OptimizedSyncTester - INFO -   监控面板测试: ❌ 失败 (0.00秒)
+2025-10-14 10:01:02,575 - OptimizedSyncTester - INFO -   集成功能测试: ❌ 失败 (0.00秒)
+2025-10-14 10:01:02,577 - OptimizedSyncTester - INFO - \n详细报告已保存到: e:/Trae/021/本地端/optimization_test_report.json
+2025-10-14 10:01:02,577 - OptimizedSyncTester - INFO - \n改进建议:
+2025-10-14 10:01:02,577 - OptimizedSyncTester - INFO -   ⚠️  有 7 个测试失败，建议检查相关模块。
+2025-10-14 10:01:02,578 - OptimizedSyncTester - INFO -   🔧 需要进一步优化和调试。
+2025-10-14 10:05:47,203 - OptimizedSyncTester - INFO - 初始化优化模块...
+2025-10-14 10:05:47,288 - OptimizedSyncTester - INFO - ✓ SyncMonitor 初始化成功
+2025-10-14 10:05:47,298 - OptimizedSyncTester - INFO - ✓ AdaptiveSync 初始化成功
+2025-10-14 10:05:47,301 - OptimizedSyncTester - ERROR - ✗ DataIntegrityManager 初始化失败: unable to open database file
+2025-10-14 10:05:47,303 - OptimizedSyncTester - WARNING - ✗ PerformanceOptimizer 不可用
+2025-10-14 10:05:47,304 - OptimizedSyncTester - WARNING - ✗ SyncDashboard 不可用
+2025-10-14 10:05:47,305 - OptimizedSyncTester - INFO - 开始运行优化同步功能测试套件...
+2025-10-14 10:05:47,306 - OptimizedSyncTester - INFO - \n==================================================
+2025-10-14 10:05:47,308 - OptimizedSyncTester - INFO - 开始测试: 日志监控分析测试
+2025-10-14 10:05:47,310 - OptimizedSyncTester - INFO - ==================================================
+2025-10-14 10:05:47,311 - OptimizedSyncTester - INFO - 测试实时日志监控和分析...
+2025-10-14 10:05:47,325 - OptimizedSyncTester - INFO - 生成性能报告: 8 项指标
+2025-10-14 10:05:47,325 - OptimizedSyncTester - INFO - 最优分片大小: 300
+2025-10-14 10:05:48,389 - OptimizedSyncTester - INFO - 日志监控分析测试: ✅ 通过 (耗时: 1.08秒)
+2025-10-14 10:05:48,390 - OptimizedSyncTester - INFO - \n==================================================
+2025-10-14 10:05:48,391 - OptimizedSyncTester - INFO - 开始测试: 智能分片调整测试
+2025-10-14 10:05:48,391 - OptimizedSyncTester - INFO - ==================================================
+2025-10-14 10:05:48,391 - OptimizedSyncTester - INFO - 测试智能分片调整算法...
+2025-10-14 10:05:48,561 - OptimizedSyncTester - INFO - 启动自适应传输: ae3d7a34943d1879
+2025-10-14 10:05:50,562 - OptimizedSyncTester - INFO - 传输状态: {'transfer_id': 'ae3d7a34943d1879', 'operation_type': 'sync', 'data_type': 'component', 'progress': 1.0, 'completed_items': 1, 'failed_items': 0, 'total_items': 1, 'status': 'completed', 'start_time': 1760407548.393253, 'last_update': 1760407548.9910204, 'error_message': None}
+2025-10-14 10:05:50,562 - OptimizedSyncTester - INFO - 最优分片大小: 300 bytes
+2025-10-14 10:05:50,562 - OptimizedSyncTester - INFO - 智能分片调整测试: ✅ 通过 (耗时: 2.17秒)
+2025-10-14 10:05:50,563 - OptimizedSyncTester - INFO - \n==================================================
+2025-10-14 10:05:50,563 - OptimizedSyncTester - INFO - 开始测试: 数据完整性测试
+2025-10-14 10:05:50,563 - OptimizedSyncTester - INFO - ==================================================
+2025-10-14 10:05:50,563 - OptimizedSyncTester - INFO - 测试数据完整性保障...
+2025-10-14 10:05:50,564 - OptimizedSyncTester - INFO - 数据完整性测试: ❌ 失败 (耗时: 0.00秒)
+2025-10-14 10:05:50,564 - OptimizedSyncTester - INFO - \n==================================================
+2025-10-14 10:05:50,564 - OptimizedSyncTester - INFO - 开始测试: 断点续传测试
+2025-10-14 10:05:50,564 - OptimizedSyncTester - INFO - ==================================================
+2025-10-14 10:05:50,565 - OptimizedSyncTester - INFO - 测试断点续传功能...
+2025-10-14 10:05:50,684 - OptimizedSyncTester - INFO - 启动大数据传输: 129d510c534badd1
+2025-10-14 10:05:53,686 - OptimizedSyncTester - INFO - 暂停传输: 129d510c534badd1
+2025-10-14 10:05:53,689 - OptimizedSyncTester - INFO - 未完成分片: 0 个
+2025-10-14 10:05:53,690 - OptimizedSyncTester - INFO - 恢复传输: 129d510c534badd1
+2025-10-14 10:05:58,692 - OptimizedSyncTester - INFO - 最终状态: {'transfer_id': '129d510c534badd1', 'operation_type': 'sync', 'data_type': 'component', 'progress': 1.0, 'completed_items': 1, 'failed_items': 0, 'total_items': 1, 'status': 'completed', 'start_time': 1760407550.5686593, 'last_update': 1760407551.0071642, 'error_message': None}
+2025-10-14 10:05:58,692 - OptimizedSyncTester - INFO - 断点续传测试: ✅ 通过 (耗时: 8.13秒)
+2025-10-14 10:05:58,693 - OptimizedSyncTester - INFO - \n==================================================
+2025-10-14 10:05:58,694 - OptimizedSyncTester - INFO - 开始测试: 性能优化测试
+2025-10-14 10:05:58,694 - OptimizedSyncTester - INFO - ==================================================
+2025-10-14 10:05:58,694 - OptimizedSyncTester - INFO - 测试性能优化功能...
+2025-10-14 10:05:58,694 - OptimizedSyncTester - INFO - 性能优化测试: ❌ 失败 (耗时: 0.00秒)
+2025-10-14 10:05:58,694 - OptimizedSyncTester - INFO - \n==================================================
+2025-10-14 10:05:58,694 - OptimizedSyncTester - INFO - 开始测试: 监控面板测试
+2025-10-14 10:05:58,694 - OptimizedSyncTester - INFO - ==================================================
+2025-10-14 10:05:58,694 - OptimizedSyncTester - INFO - 测试监控面板功能...
+2025-10-14 10:05:58,695 - OptimizedSyncTester - INFO - 监控面板测试: ❌ 失败 (耗时: 0.00秒)
+2025-10-14 10:05:58,695 - OptimizedSyncTester - INFO - \n==================================================
+2025-10-14 10:05:58,695 - OptimizedSyncTester - INFO - 开始测试: 集成功能测试
+2025-10-14 10:05:58,695 - OptimizedSyncTester - INFO - ==================================================
+2025-10-14 10:05:58,695 - OptimizedSyncTester - INFO - 测试各模块集成功能...
+2025-10-14 10:05:58,695 - OptimizedSyncTester - INFO - 1. 测试监控模块与性能优化器集成...
+2025-10-14 10:05:58,696 - OptimizedSyncTester - INFO - 2. 测试完整性管理与自适应同步集成...
+2025-10-14 10:05:58,697 - OptimizedSyncTester - INFO - 3. 测试数据库访问集成...
+2025-10-14 10:05:58,697 - OptimizedSyncTester - INFO - 集成测试完成，成功率: 33.3%
+2025-10-14 10:05:58,697 - OptimizedSyncTester - INFO - 集成功能测试: ❌ 失败 (耗时: 0.00秒)
+2025-10-14 10:05:58,697 - OptimizedSyncTester - INFO - \n============================================================
+2025-10-14 10:05:58,698 - OptimizedSyncTester - INFO - 优化同步功能测试报告
+2025-10-14 10:05:58,698 - OptimizedSyncTester - INFO - ============================================================
+2025-10-14 10:05:58,698 - OptimizedSyncTester - INFO - 测试总数: 7
+2025-10-14 10:05:58,698 - OptimizedSyncTester - INFO - 通过测试: 3
+2025-10-14 10:05:58,699 - OptimizedSyncTester - INFO - 失败测试: 4
+2025-10-14 10:05:58,701 - OptimizedSyncTester - INFO - 成功率: 42.9%
+2025-10-14 10:05:58,705 - OptimizedSyncTester - INFO - \n详细结果:
+2025-10-14 10:05:58,706 - OptimizedSyncTester - INFO -   日志监控分析测试: ✅ 通过 (1.08秒)
+2025-10-14 10:05:58,707 - OptimizedSyncTester - INFO -   智能分片调整测试: ✅ 通过 (2.17秒)
+2025-10-14 10:05:58,707 - OptimizedSyncTester - INFO -   数据完整性测试: ❌ 失败 (0.00秒)
+2025-10-14 10:05:58,707 - OptimizedSyncTester - INFO -   断点续传测试: ✅ 通过 (8.13秒)
+2025-10-14 10:05:58,708 - OptimizedSyncTester - INFO -   性能优化测试: ❌ 失败 (0.00秒)
+2025-10-14 10:05:58,708 - OptimizedSyncTester - INFO -   监控面板测试: ❌ 失败 (0.00秒)
+2025-10-14 10:05:58,708 - OptimizedSyncTester - INFO -   集成功能测试: ❌ 失败 (0.00秒)
+2025-10-14 10:05:58,709 - OptimizedSyncTester - INFO - \n详细报告已保存到: e:/Trae/021/本地端/optimization_test_report.json
+2025-10-14 10:05:58,710 - OptimizedSyncTester - INFO - \n改进建议:
+2025-10-14 10:05:58,710 - OptimizedSyncTester - INFO -   ⚠️  有 4 个测试失败，建议检查相关模块。
+2025-10-14 10:05:58,710 - OptimizedSyncTester - INFO -   🔧 需要进一步优化和调试。

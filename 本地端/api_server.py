@@ -4,9 +4,20 @@ import sqlite3
 app = Flask(__name__)
 DB_PATH = 'packing_system.db'
 
+# 在首次导入时尝试修复/初始化数据库文件，避免 unsupported file format
+try:
+    from database import Database as _DB
+    _DB(DB_PATH)
+except Exception:
+    pass
+
 
 def query_one(sql, params=()):
-    conn = sqlite3.connect(DB_PATH)
+    try:
+        conn = _DB(DB_PATH).get_connection()
+    except Exception:
+        import sqlite3
+        conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
     cur.execute(sql, params)
@@ -16,7 +27,11 @@ def query_one(sql, params=()):
 
 
 def query_all(sql, params=()):
-    conn = sqlite3.connect(DB_PATH)
+    try:
+        conn = _DB(DB_PATH).get_connection()
+    except Exception:
+        import sqlite3
+        conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
     cur.execute(sql, params)
@@ -49,86 +64,33 @@ def search():
         '''SELECT c.*, o.order_number, o.customer_address 
            FROM components c 
            LEFT JOIN orders o ON c.order_id = o.id 
-           WHERE c.component_code = ?''',
-        (code,)
+           WHERE c.component_code = ?''', (code,)
     )
     if comp:
-        # Get package info if component has package_id (排除deleted状态)
-        package = None
-        pallet = None
-        if comp.get('package_id'):
-            package = query_one(
-                '''SELECT p.*, o.order_number, o.customer_address 
-                   FROM packages p 
-                   LEFT JOIN orders o ON p.order_id = o.id 
-                   WHERE p.id = ? ''',
-                (comp['package_id'],)
-            )
-            # Get pallet info through pallet_packages关联
-            if package and package.get('id'):
-                pallet = query_one(
-                    '''SELECT pal.* FROM pallets pal 
-                       INNER JOIN pallet_packages pp ON pal.id = pp.pallet_id 
-                       WHERE pp.package_id = ?''',
-                    (package['id'],)
-                )
-        
-        return jsonify({
-            "type": "component", 
-            "data": comp,
-            "package": package,
-            "pallet": pallet
-        })
+        return jsonify({"ok": True, "type": "component", "data": comp})
 
-    # Search package by package_number (排除deleted状态)
+    # Search package by package_number
     pkg = query_one(
-        '''SELECT p.*, o.order_number, o.customer_address 
-           FROM packages p 
-           LEFT JOIN orders o ON p.order_id = o.id 
-           WHERE p.package_number = ? ''',
-        (code,)
+        '''SELECT pk.*, o.order_number, o.customer_address, pal.pallet_number 
+           FROM packages pk 
+           LEFT JOIN orders o ON pk.order_id = o.id 
+           LEFT JOIN pallets pal ON pk.pallet_id = pal.id 
+           WHERE pk.package_number = ?''', (code,)
     )
     if pkg:
-        # Get components in this package
-        components = query_all(
-            '''SELECT c.*, o.order_number, o.customer_address 
-               FROM components c 
-               LEFT JOIN orders o ON c.order_id = o.id 
-               WHERE c.package_id = ?''',
-            (pkg['id'],)
-        )
-        return jsonify({"type": "package", "data": pkg, "components": components})
+        return jsonify({"ok": True, "type": "package", "data": pkg})
 
     # Search pallet by pallet_number
     pal = query_one(
-        'SELECT * FROM pallets WHERE pallet_number = ?',
-        (code,)
+        '''SELECT p.*, o.order_number, o.customer_address 
+           FROM pallets p 
+           LEFT JOIN orders o ON p.order_id = o.id 
+           WHERE p.pallet_number = ?''', (code,)
     )
     if pal:
-        # Get packages in this pallet through pallet_packages关联 (排除deleted状态)
-        packages = query_all(
-            '''SELECT p.*, o.order_number, o.customer_address 
-               FROM packages p 
-               INNER JOIN pallet_packages pp ON p.id = pp.package_id
-               LEFT JOIN orders o ON p.order_id = o.id 
-               WHERE pp.pallet_id = ? ''',
-            (pal['id'],)
-        )
-        
-        # Get components for each package
-        for package in packages:
-            components = query_all(
-                '''SELECT c.*, o.order_number, o.customer_address 
-                   FROM components c 
-                   LEFT JOIN orders o ON c.order_id = o.id 
-                   WHERE c.package_id = ?''',
-                (package['id'],)
-            )
-            package['components'] = components
-        
-        return jsonify({"type": "pallet", "data": pal, "packages": packages})
+        return jsonify({"ok": True, "type": "pallet", "data": pal})
 
-    return jsonify({"type": "unknown", "data": {}}), 404
+    return jsonify({"ok": False, "error": "not found"})
 
 
 if __name__ == '__main__':

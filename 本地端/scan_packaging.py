@@ -7,9 +7,12 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
                              QLineEdit, QTextEdit, QComboBox, QMessageBox,
                              QDialog, QDialogButtonBox, QGroupBox, QCheckBox,
                              QSplitter, QHeaderView, QTabWidget, QSpinBox,
-                             QButtonGroup, QRadioButton, QFrame)
+                             QButtonGroup, QRadioButton, QFrame, QMenu, QAction,
+                             QFileDialog, QApplication)
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
-from PyQt5.QtGui import QFont, QPixmap, QPainter, QColor
+from PyQt5.QtGui import QFont, QPixmap, QPainter, QColor, QImage
+import numpy as np
+from qr_handler import QRCodeHandler
 from database import db
 from error_handling import ErrorHandler, undo_manager, Prompt
 from order_management import OrderSelectionDialog
@@ -18,6 +21,62 @@ try:
 except Exception:
     def voice_speak(_text: str):
         pass
+
+class QRPreviewDialog(QDialog):
+    """二维码预览对话框，支持复制包裹号与保存图片"""
+    def __init__(self, pil_image, package_number: str, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("包裹二维码预览")
+        self.resize(360, 420)
+        self._pil_image = pil_image
+        self._package_number = package_number
+
+        layout = QVBoxLayout(self)
+        self.image_label = QLabel()
+        self.image_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.image_label)
+
+        # 按钮区
+        btn_box = QHBoxLayout()
+        self.copy_btn = QPushButton("复制包裹号")
+        self.save_btn = QPushButton("保存图片")
+        self.close_btn = QPushButton("关闭")
+        btn_box.addStretch()
+        btn_box.addWidget(self.copy_btn)
+        btn_box.addWidget(self.save_btn)
+        btn_box.addWidget(self.close_btn)
+        layout.addLayout(btn_box)
+
+        self.copy_btn.clicked.connect(self.copy_package_number)
+        self.save_btn.clicked.connect(self.save_image)
+        self.close_btn.clicked.connect(self.accept)
+
+        self._update_preview()
+
+    def _update_preview(self):
+        pixmap = self._pil_to_qpixmap(self._pil_image)
+        self.image_label.setPixmap(pixmap)
+
+    def _pil_to_qpixmap(self, pil_image):
+        arr = np.array(pil_image.convert('RGB'))
+        h, w, ch = arr.shape
+        bytes_per_line = ch * w
+        qt_image = QImage(arr.data, w, h, bytes_per_line, QImage.Format_RGB888)
+        return QPixmap.fromImage(qt_image)
+
+    def copy_package_number(self):
+        QApplication.clipboard().setText(self._package_number)
+        QMessageBox.information(self, "已复制", f"包裹号 {self._package_number} 已复制到剪贴板")
+
+    def save_image(self):
+        default_name = f"package_{self._package_number}.png"
+        fname, _ = QFileDialog.getSaveFileName(self, "保存二维码", default_name, "PNG 图片 (*.png)")
+        if fname:
+            try:
+                self._pil_image.save(fname, format='PNG')
+                QMessageBox.information(self, "成功", f"已保存到\n{fname}")
+            except Exception as e:
+                QMessageBox.critical(self, "错误", f"保存失败：{str(e)}")
 
 class ScanConfigDialog(QDialog):
     """扫码配置对话框"""
@@ -1068,10 +1127,16 @@ class ScanPackaging(QWidget):
             '包装号', '订单号', '包裹序号', '板件数量', '创建时间', '状态'
         ])
         self.packages_table.horizontalHeader().setStretchLastSection(True)
-        self.packages_table.selectionBehavior = QTableWidget.SelectRows
+        self.packages_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.packages_table.setSelectionMode(QTableWidget.SingleSelection)
+        self.packages_table.setAlternatingRowColors(True)
+        self.packages_table.setStyleSheet("QTableWidget::item:selected{background-color: rgba(255,224,130,0.7); color:black;}")
         self.packages_table.itemSelectionChanged.connect(self.on_package_selected)
         # 确保垂直滚动条始终可见
         self.packages_table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        # 右键菜单：预览/保存二维码、复制包裹号
+        self.packages_table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.packages_table.customContextMenuRequested.connect(self.on_packages_context_menu)
         left_layout.addWidget(self.packages_table)
         
         splitter.addWidget(left_widget)
@@ -1217,6 +1282,8 @@ class ScanPackaging(QWidget):
                 self.new_package_btn.setEnabled(True)
                 # 重新加载包装列表
                 self.load_active_packages()
+                # 刷新订单统计
+                self.update_order_stats()
     
     def on_order_selected(self):
         """订单选择事件（保留用于兼容性）"""
@@ -1274,12 +1341,12 @@ class ScanPackaging(QWidget):
                 
                 QMessageBox.information(self, "成功", f"包裹 {package_number} 已删除，板件已还原为未打包状态")
                 self.load_active_packages()
-                # 云端删除同步：包裹
+                # 云端删除同步：包裹（受系统设置控制）
                 try:
-                    from real_time_cloud_sync import get_sync_service
-                    svc = getattr(self, 'cloud_sync_service', None) or get_sync_service()
                     if package_number:
-                        svc.trigger_sync('delete_packages', {'items': [{'package_number': package_number}]})
+                        from real_time_cloud_sync import get_sync_service
+                        svc = getattr(self, 'cloud_sync_service', None) or get_sync_service()
+                        svc.trigger_sync('delete_packages', {'items': [{'package_number': package_number}]}, force=True)
                 except Exception as e:
                     print(f"触发云端删除包裹失败: {e}")
                 
@@ -1519,7 +1586,53 @@ class ScanPackaging(QWidget):
             
             # 存储包装ID
             self.packages_table.item(i, 0).setData(Qt.UserRole, package[0])
-            
+
+        # 刷新右侧订单统计
+        self.update_order_stats()
+
+    def on_packages_context_menu(self, pos):
+        # 根据点击位置确定行
+        item = self.packages_table.itemAt(pos)
+        if not item:
+            return
+        row = item.row()
+        pkg_item = self.packages_table.item(row, 0)
+        if not pkg_item:
+            return
+        package_number = pkg_item.text()
+
+        menu = QMenu(self)
+        act_preview = QAction("预览包裹二维码", self)
+        act_save = QAction("保存包裹二维码", self)
+        act_copy = QAction("复制包裹号", self)
+        menu.addAction(act_preview)
+        menu.addAction(act_save)
+        menu.addSeparator()
+        menu.addAction(act_copy)
+
+        action = menu.exec_(self.packages_table.viewport().mapToGlobal(pos))
+        if not action:
+            return
+
+        try:
+            if action == act_copy:
+                QApplication.clipboard().setText(package_number)
+                return
+
+            # 生成二维码图片
+            handler = QRCodeHandler()
+            pil_img = handler.create_qr_code_with_text(package_number)
+
+            if action == act_preview:
+                dlg = QRPreviewDialog(pil_img, package_number, self)
+                dlg.exec_()
+            elif action == act_save:
+                default_name = f"package_{package_number}.png"
+                fname, _ = QFileDialog.getSaveFileName(self, "保存包裹二维码", default_name, "PNG 图片 (*.png)")
+                if fname:
+                    pil_img.save(fname, format='PNG')
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"操作失败：\n{str(e)}")
             # 设置背景色
             is_manual = package[7] if len(package) > 7 else 0  # is_manual字段
             status = package[6]  # status字段
@@ -1700,6 +1813,7 @@ class ScanPackaging(QWidget):
         dialog = PackageDialog(parent=self, order_id=self.current_order_id)
         if dialog.exec_() == QDialog.Accepted:
             self.load_active_packages()
+            self.update_order_stats()
     
     def scan_config(self):
         """扫码配置"""
@@ -1836,6 +1950,7 @@ class ScanPackaging(QWidget):
             # 刷新界面
             self.load_current_package_components()
             self.load_active_packages()
+            self.update_order_stats()
             
             # 语音提醒：板件加入包装成功
             try:
@@ -1977,6 +2092,7 @@ class ScanPackaging(QWidget):
                 # 刷新界面
                 self.load_current_package_components()
                 self.load_active_packages()
+                self.update_order_stats()
                 
             except Exception as e:
                 QMessageBox.critical(self, "错误", f"移除板件失败：\n{str(e)}")
@@ -2045,6 +2161,7 @@ class ScanPackaging(QWidget):
                 
                 # 刷新列表
                 self.load_active_packages()
+                self.update_order_stats()
                 
                 Prompt.show_info(f"包装 {package_number} 已完成")
                 
@@ -2118,6 +2235,7 @@ class ScanPackaging(QWidget):
                 
                 # 刷新包装列表
                 self.load_active_packages()
+                self.update_order_stats()
                 
                 Prompt.show_info(f"包装 {package_number} 已解包，可以继续编辑")
                 
@@ -2844,6 +2962,11 @@ class PendingComponentsDialog(QDialog):
             # 通知父窗口刷新
             if hasattr(self.parent(), 'load_active_packages'):
                 self.parent().load_active_packages()
+                try:
+                    if hasattr(self.parent(), 'update_order_stats'):
+                        self.parent().update_order_stats()
+                except Exception:
+                    pass
         
         except Exception as e:
             QMessageBox.critical(self, "错误", f"一键打包失败：\n{str(e)}")

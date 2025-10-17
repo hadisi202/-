@@ -3,11 +3,13 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QComboBox, QSpinBox, QDoubleSpinBox, QTextEdit, QMessageBox,
                              QScrollArea, QFrame, QCheckBox, QTabWidget,
                              QGridLayout, QSplitter, QListWidget, QListWidgetItem,
-                             QStackedWidget, QSizePolicy, QTimeEdit, QTableWidget, QTableWidgetItem, QHeaderView)
+                             QStackedWidget, QSizePolicy, QTimeEdit, QTableWidget, QTableWidgetItem, QHeaderView,
+                             QDialog, QProgressBar)
 from PyQt5.QtCore import Qt, pyqtSignal, QTimer, QTime
 from PyQt5.QtGui import QFont, QIcon
 import database as db
 import json
+import os
 from real_time_cloud_sync import get_sync_service
 
 class SystemSettings(QWidget):
@@ -26,6 +28,13 @@ class SystemSettings(QWidget):
         self.is_admin_authenticated = False
         self.admin_user_name = None
         # 云同步服务与定时器
+        # 在创建同步服务之前设置 HTTP 直连与 CLI 兜底所需环境变量
+        try:
+            os.environ.setdefault('PACKOPS_BASE_URL', 'https://cloud1-7grjr7usb5d86f59-1363732811.ap-shanghai.app.tcloudbase.com/packOps')
+            os.environ.setdefault('PACKOPS_ENV_ID', 'cloud1-7grjr7usb5d86f59')
+            os.environ.setdefault('PACKOPS_VERIFY', 'true')
+        except Exception:
+            pass
         try:
             # 统一使用单例，避免 UI 内与其它模块各自实例造成状态不一致
             from real_time_cloud_sync import get_sync_service
@@ -49,6 +58,77 @@ class SystemSettings(QWidget):
         try:
             self._apply_backup_settings()
         except Exception:
+            pass
+
+    # === 上传进度条（简洁显示百分比） ===
+    def _progress_file_path(self) -> str:
+        try:
+            return os.path.join(os.path.dirname(os.path.abspath(__file__)), 'sync_progress.json')
+        except Exception:
+            return 'sync_progress.json'
+
+    def _show_upload_progress(self, title_text: str = '正在上传到云端…'):
+        try:
+            # 仅创建一次对话框，避免重复实例
+            dlg = QDialog(self)
+            dlg.setWindowTitle(title_text)
+            dlg.setModal(True)
+            dlg.setFixedWidth(420)
+            layout = QVBoxLayout(dlg)
+            layout.setContentsMargins(20, 20, 20, 20)
+
+            label = QLabel('上传进度：0%')
+            label.setAlignment(Qt.AlignCenter)
+            bar = QProgressBar()
+            bar.setRange(0, 100)
+            bar.setValue(0)
+            # 简洁样式：仅显示条与百分比
+            bar.setTextVisible(True)
+            bar.setFormat('%p%')
+            layout.addWidget(label)
+            layout.addWidget(bar)
+
+            # 轮询进度文件更新进度
+            timer = QTimer(dlg)
+            timer.setSingleShot(False)
+            # 若出现连续的完成状态且内容未变化，认为整体任务已完成
+            state = {'last_sig': '', 'quiet_ticks': 0}
+            def _poll():
+                try:
+                    path = self._progress_file_path()
+                    if not os.path.exists(path):
+                        return
+                    with open(path, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                    percent = int(data.get('percent') or 0)
+                    status = str(data.get('status') or '')
+                    sig = f"{status}:{percent}:{data.get('operation')}:{data.get('data_type')}:{data.get('updated_at')}"
+                    bar.setValue(max(0, min(100, percent)))
+                    label.setText(f'上传进度：{percent}%')
+                    if status in ('completed', 'failed') or percent >= 100:
+                        # 若进度文件在短时间内未变化，判定整体完成
+                        if sig == state['last_sig']:
+                            state['quiet_ticks'] += 1
+                        else:
+                            state['quiet_ticks'] = 0
+                        state['last_sig'] = sig
+                        if state['quiet_ticks'] >= 4:  # ~1.2s 无变化
+                            timer.stop()
+                            dlg.accept()
+                            return
+                    else:
+                        state['last_sig'] = sig
+                        state['quiet_ticks'] = 0
+                except Exception:
+                    # 忽略解析/读取异常
+                    pass
+            timer.timeout.connect(_poll)
+            timer.start(300)
+
+            # 展示对话框并由轮询自动关闭
+            dlg.exec_()
+        except Exception:
+            # UI 异常不影响上传流程
             pass
     
     def init_ui(self):
@@ -75,8 +155,9 @@ class SystemSettings(QWidget):
         
         main_layout.addWidget(splitter)
         
-        # 底部按钮区域
-        self.create_bottom_buttons(main_layout)
+        # 底部按钮区域改为顶部工具区：在内容区域顶部创建按钮栏
+        # 注意：调用位置调整为在创建内容区域后，由内容区域自身负责摆放按钮
+        #（此处不再在 main_layout 末尾添加底部按钮）
         
         # 设置默认选中第一项（在所有UI组件创建完成后）
         self.nav_list.setCurrentRow(0)
@@ -169,6 +250,63 @@ class SystemSettings(QWidget):
             }
         """)
         content_layout.addWidget(self.content_title)
+
+        # 顶部按钮区域（原底部按钮上移至此）
+        top_button_layout = QHBoxLayout()
+        top_button_layout.setContentsMargins(0, 0, 0, 0)
+        # 左侧按钮：导入/导出设置
+        self.import_settings_btn = QPushButton("导入设置")
+        self.export_settings_btn = QPushButton("导出设置")
+        top_button_layout.addWidget(self.import_settings_btn)
+        top_button_layout.addWidget(self.export_settings_btn)
+        top_button_layout.addStretch()
+        # 右侧按钮：重置/应用/保存
+        self.reset_btn = QPushButton("重置为默认")
+        self.apply_btn = QPushButton("应用")
+        self.save_btn = QPushButton("保存设置")
+        # 样式与原保持一致
+        for btn in [self.reset_btn, self.apply_btn]:
+            btn.setStyleSheet(
+                """
+                QPushButton {
+                    background-color: #6c757d;
+                    color: white;
+                    border: none;
+                    padding: 8px 20px;
+                    border-radius: 4px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background-color: #5a6268;
+                }
+                """
+            )
+        self.save_btn.setStyleSheet(
+            """
+            QPushButton {
+                background-color: #28a745;
+                color: white;
+                border: none;
+                padding: 8px 20px;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #218838;
+            }
+            """
+        )
+        top_button_layout.addWidget(self.reset_btn)
+        top_button_layout.addWidget(self.apply_btn)
+        top_button_layout.addWidget(self.save_btn)
+        # 信号连接与原逻辑一致
+        self.reset_btn.clicked.connect(self.reset_to_defaults)
+        self.apply_btn.clicked.connect(self.apply_settings)
+        self.save_btn.clicked.connect(self.save_settings)
+        # 接入导入/导出按钮
+        self.import_settings_btn.clicked.connect(self.on_import_settings)
+        self.export_settings_btn.clicked.connect(self.on_export_settings)
+        content_layout.addLayout(top_button_layout)
         
         # 滚动区域
         scroll_area = QScrollArea()
@@ -1013,11 +1151,11 @@ class SystemSettings(QWidget):
             try:
                 svc = self.cloud_sync_service if hasattr(self, 'cloud_sync_service') and self.cloud_sync_service else get_sync_service()
                 if comp_codes:
-                    svc.trigger_sync('delete_components', {'items': [{'component_code': c} for c in comp_codes]})
+                    svc.trigger_sync('delete_components', {'items': [{'component_code': c} for c in comp_codes]}, force=True)
                 if pkg_numbers:
-                    svc.trigger_sync('delete_packages', {'items': [{'package_number': p} for p in pkg_numbers]})
+                    svc.trigger_sync('delete_packages', {'items': [{'package_number': p} for p in pkg_numbers]}, force=True)
                 if pal_numbers:
-                    svc.trigger_sync('delete_pallets', {'items': [{'pallet_number': p} for p in pal_numbers]})
+                    svc.trigger_sync('delete_pallets', {'items': [{'pallet_number': p} for p in pal_numbers]}, force=True)
             except Exception as e:
                 print(f"触发云端删除任务失败: {e}")
             # 发出联动信号
@@ -1193,30 +1331,10 @@ class SystemSettings(QWidget):
 
         layout.addWidget(security_group)
 
-        # 云同步设置
+        # 云同步设置（仅保留手动上传按钮，移除自动上传与时间设置）
         cloud_group = QGroupBox("云同步设置")
         cloud_group.setStyleSheet(self.get_group_style())
         cloud_layout = QFormLayout(cloud_group)
-
-        self.auto_sync_enabled = QCheckBox("启用自动同步到云端")
-        cloud_layout.addRow("自动同步:", self.auto_sync_enabled)
-
-        self.sync_interval_minutes = QSpinBox()
-        self.sync_interval_minutes.setRange(1, 120)
-        self.sync_interval_minutes.setSuffix(" 分钟")
-        cloud_layout.addRow("同步间隔:", self.sync_interval_minutes)
-        # 开关与间隔变化时立即应用云同步设置
-        self.auto_sync_enabled.stateChanged.connect(self._apply_cloud_sync_settings)
-        self.sync_interval_minutes.valueChanged.connect(lambda _: self._apply_cloud_sync_settings())
-        # 每日全量同步配置
-        self.daily_full_sync_enabled = QCheckBox("启用每日批量同步（全量）")
-        cloud_layout.addRow("每日全量同步:", self.daily_full_sync_enabled)
-        self.daily_full_sync_time = QTimeEdit()
-        self.daily_full_sync_time.setDisplayFormat("HH:mm")
-        self.daily_full_sync_time.setTime(QTime(17, 30))
-        cloud_layout.addRow("执行时间:", self.daily_full_sync_time)
-        self.daily_full_sync_enabled.stateChanged.connect(self._apply_daily_full_sync_settings)
-        self.daily_full_sync_time.timeChanged.connect(lambda _: self._apply_daily_full_sync_settings())
 
         btn_layout = QHBoxLayout()
         self.sync_now_btn = QPushButton("立即同步最近更新")
@@ -1313,64 +1431,9 @@ class SystemSettings(QWidget):
         layout.addStretch()
         self.stacked_widget.addWidget(widget)
     
+    # 底部按钮已上移为顶部工具区，此方法不再使用，保留以兼容旧调用但不执行
     def create_bottom_buttons(self, main_layout):
-        """创建底部按钮区域"""
-        button_layout = QHBoxLayout()
-        button_layout.setContentsMargins(20, 10, 20, 10)
-        
-        # 左侧按钮
-        self.import_settings_btn = QPushButton("导入设置")
-        self.export_settings_btn = QPushButton("导出设置")
-        
-        button_layout.addWidget(self.import_settings_btn)
-        button_layout.addWidget(self.export_settings_btn)
-        button_layout.addStretch()
-        
-        # 右侧按钮
-        self.reset_btn = QPushButton("重置为默认")
-        self.apply_btn = QPushButton("应用")
-        self.save_btn = QPushButton("保存设置")
-        
-        # 设置按钮样式
-        for btn in [self.reset_btn, self.apply_btn]:
-            btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #6c757d;
-                    color: white;
-                    border: none;
-                    padding: 8px 20px;
-                    border-radius: 4px;
-                    font-weight: bold;
-                }
-                QPushButton:hover {
-                    background-color: #5a6268;
-                }
-            """)
-        
-        self.save_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #28a745;
-                color: white;
-                border: none;
-                padding: 8px 20px;
-                border-radius: 4px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #218838;
-            }
-        """)
-        
-        button_layout.addWidget(self.reset_btn)
-        button_layout.addWidget(self.apply_btn)
-        button_layout.addWidget(self.save_btn)
-        
-        # 连接信号
-        self.reset_btn.clicked.connect(self.reset_to_defaults)
-        self.apply_btn.clicked.connect(self.apply_settings)
-        self.save_btn.clicked.connect(self.save_settings)
-        
-        main_layout.addLayout(button_layout)
+        pass
     
     def get_group_style(self):
         """获取组框样式"""
@@ -1565,30 +1628,7 @@ class SystemSettings(QWidget):
         self.backup_path_edit.setText(self.db.get_setting('backup_path', './backups'))
         self.backup_compress_enabled.setChecked(self.db.get_setting('backup_compress_enabled', 'true') == 'true')
         
-        # 云同步设置
-        if hasattr(self, 'auto_sync_enabled'):
-            self.auto_sync_enabled.setChecked(self.db.get_setting('auto_sync_enabled', 'true') == 'true')
-        if hasattr(self, 'sync_interval_minutes'):
-            try:
-                self.sync_interval_minutes.setValue(int(self.db.get_setting('sync_interval_minutes', '5')))
-            except Exception:
-                self.sync_interval_minutes.setValue(5)
-        # 应用云同步设置（启动/停止服务与定时器）
-        self._apply_cloud_sync_settings()
-        # 读取每日全量同步设置
-        if hasattr(self, 'daily_full_sync_enabled'):
-            self.daily_full_sync_enabled.setChecked(self.db.get_setting('daily_full_sync_enabled', 'false') == 'true')
-        if hasattr(self, 'daily_full_sync_time'):
-            try:
-                t_str = self.db.get_setting('daily_full_sync_time', '17:30')
-                t = QTime.fromString(t_str, 'HH:mm')
-                if not t.isValid():
-                    t = QTime(17, 30)
-                self.daily_full_sync_time.setTime(t)
-            except Exception:
-                self.daily_full_sync_time.setTime(QTime(17, 30))
-        # 应用每日全量同步设置（调度下一次触发）
-        self._apply_daily_full_sync_settings()
+        # 云同步设置已禁用，不再加载任何自动同步相关项
         
         # 打印机设置
         self.printer_name.setCurrentText(self.db.get_setting('printer_name', ''))
@@ -1717,10 +1757,12 @@ class SystemSettings(QWidget):
             if not getattr(self.cloud_sync_service, 'running', False):
                 QMessageBox.warning(self, "提示", "云同步服务未能启动，请检查 API Key / 环境配置。")
                 return
-            # 入队最近更新的三类数据
-            self.cloud_sync_service.trigger_sync('component', {})
-            self.cloud_sync_service.trigger_sync('package', {})
-            self.cloud_sync_service.trigger_sync('pallet', {})
+            # 入队最近更新的三类数据（仅手动触发，force=True）
+            self.cloud_sync_service.trigger_sync('component', {}, force=True)
+            self.cloud_sync_service.trigger_sync('package', {}, force=True)
+            self.cloud_sync_service.trigger_sync('pallet', {}, force=True)
+            # 弹出简洁进度条对话框（仅显示百分比）
+            self._show_upload_progress('正在上传最近更新…')
             QMessageBox.information(self, "成功", "已触发最近更新的云同步任务。")
         except Exception as e:
             QMessageBox.critical(self, "错误", f"立即同步失败：{e}")
@@ -1740,8 +1782,10 @@ class SystemSettings(QWidget):
             if not getattr(self.cloud_sync_service, 'running', False):
                 QMessageBox.warning(self, "提示", "云同步服务未能启动，请检查 API Key / 环境配置。")
                 return
-            # 改为入队 full_sync 任务，避免阻塞
-            self.cloud_sync_service.trigger_sync('full_sync', {})
+            # 改为入队 full_sync 任务，避免阻塞（仅手动触发，force=True）
+            self.cloud_sync_service.trigger_sync('full_sync', {}, force=True)
+            # 弹出简洁进度条对话框（仅显示百分比）
+            self._show_upload_progress('全量同步上传进行中…')
             QMessageBox.information(self, "成功", "已触发全量同步任务并入队。")
         except Exception as e:
             QMessageBox.critical(self, "错误", f"全量同步失败：{e}")
@@ -1768,8 +1812,8 @@ class SystemSettings(QWidget):
                 print(f'启动云同步服务失败: {e}')
             # 先入队清空集合，再入队全量同步
             try:
-                svc.trigger_sync('clear', {'collections': ['components', 'packages', 'pallets']})
-                svc.trigger_sync('full_sync', {})
+                svc.trigger_sync('clear', {'collections': ['components', 'packages', 'pallets']}, force=True)
+                svc.trigger_sync('full_sync', {}, force=True)
                 QMessageBox.information(self, "成功", "已触发云端清空并入队全量同步任务。")
             except Exception as e:
                 QMessageBox.critical(self, "错误", f"触发任务失败：{e}")
@@ -1839,6 +1883,297 @@ class SystemSettings(QWidget):
         except Exception as e:
             print(f'清理旧备份失败: {e}')
 
+    # === 设置导入/导出 ===
+    def _safe_json_loads(self, text):
+        try:
+            if text is None:
+                return None
+            return json.loads(text)
+        except Exception:
+            return text
+
+    def _maybe_json_str(self, value):
+        try:
+            if isinstance(value, (dict, list)):
+                return json.dumps(value, ensure_ascii=False)
+            return str(value)
+        except Exception:
+            return str(value)
+
+    def on_export_settings(self):
+        """导出当前系统的所有配置参数到 JSON 文件（含附属配置）"""
+        try:
+            from PyQt5.QtWidgets import QFileDialog
+            from datetime import datetime
+            # 选择保存文件
+            default_dir = os.path.dirname(getattr(self.db, 'db_path', '')) or os.getcwd()
+            ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+            default_name = os.path.join(default_dir, f"system_settings_{ts}.json")
+            save_path, _ = QFileDialog.getSaveFileName(self, "导出系统设置", default_name, "JSON 文件 (*.json)")
+            if not save_path:
+                return
+
+            conn = self.db.get_connection()
+            cur = conn.cursor()
+
+            # 导出 system_settings 全表
+            cur.execute('SELECT setting_key, setting_value, setting_type, description FROM system_settings ORDER BY setting_key')
+            s_rows = cur.fetchall()
+            system_settings = [
+                {
+                    'key': r[0],
+                    'value': self._safe_json_loads(r[1]),
+                    'type': r[2],
+                    'description': r[3]
+                } for r in s_rows
+            ]
+
+            # 导出扫码配置
+            try:
+                cur.execute('''
+                    SELECT config_name, prefix_remove, suffix_remove, extract_start, extract_length, extract_mode, is_default
+                    FROM scan_configs ORDER BY config_name
+                ''')
+                scan_configs = []
+                for row in cur.fetchall():
+                    scan_configs.append({
+                        'config_name': row[0],
+                        'prefix_remove': row[1],
+                        'suffix_remove': row[2],
+                        'extract_start': row[3],
+                        'extract_length': row[4],
+                        'extract_mode': row[5],
+                        'is_default': row[6]
+                    })
+            except Exception:
+                scan_configs = []
+
+            # 导出导入配置
+            try:
+                cur.execute('''
+                    SELECT config_name, field_mapping, encoding, delimiter, custom_field_names, is_default
+                    FROM import_configs ORDER BY config_name
+                ''')
+                import_configs = []
+                for row in cur.fetchall():
+                    import_configs.append({
+                        'config_name': row[0],
+                        'field_mapping': self._safe_json_loads(row[1]),
+                        'encoding': row[2],
+                        'delimiter': row[3],
+                        'custom_field_names': self._safe_json_loads(row[4]) if row[4] else None,
+                        'is_default': row[5]
+                    })
+            except Exception:
+                import_configs = []
+
+            # 导出标签模板（如存在）
+            try:
+                cur.execute('''
+                    SELECT template_name, template_config, label_width, label_height, is_default
+                    FROM label_templates ORDER BY template_name
+                ''')
+                label_templates = []
+                for row in cur.fetchall():
+                    label_templates.append({
+                        'template_name': row[0],
+                        'template_config': self._safe_json_loads(row[1]),
+                        'label_width': row[2],
+                        'label_height': row[3],
+                        'is_default': row[4]
+                    })
+            except Exception:
+                label_templates = []
+
+            conn.close()
+
+            data = {
+                'meta': {
+                    'format': 'PackingSystem.Settings',
+                    'version': 1,
+                    'exported_at': datetime.now().isoformat(timespec='seconds')
+                },
+                'system_settings': system_settings,
+                'scan_configs': scan_configs,
+                'import_configs': import_configs,
+                'label_templates': label_templates
+            }
+
+            with open(save_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+
+            QMessageBox.information(self, "成功", f"已导出系统设置到:\n{save_path}")
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"导出失败：{e}")
+
+    def on_import_settings(self):
+        """从 JSON 文件导入系统设置（覆盖当前配置，含附属配置）"""
+        try:
+            from PyQt5.QtWidgets import QFileDialog
+            file_path, _ = QFileDialog.getOpenFileName(self, "导入系统设置", "", "JSON 文件 (*.json)")
+            if not file_path:
+                return
+
+            with open(file_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+
+            # 兼容不同结构提取 system_settings
+            system_settings = []
+            if isinstance(data, dict):
+                if isinstance(data.get('system_settings'), list):
+                    system_settings = data.get('system_settings')
+                elif isinstance(data.get('settings'), list):
+                    # 兼容旧键名
+                    system_settings = data.get('settings')
+                elif isinstance(data.get('settings'), dict):
+                    system_settings = [
+                        {'key': k, 'value': v, 'type': None, 'description': None}
+                        for k, v in data.get('settings', {}).items()
+                    ]
+            elif isinstance(data, list):
+                system_settings = data
+
+            conn = self.db.get_connection()
+            cur = conn.cursor()
+
+            # 覆盖写入 system_settings
+            for item in system_settings:
+                key = item.get('key') or item.get('setting_key')
+                val = item.get('value') if 'value' in item else item.get('setting_value')
+                if key is None:
+                    continue
+                self.db.set_setting(key, val)
+
+            # 导入扫码配置（按名称幂等 Upsert）
+            try:
+                for sc in (data.get('scan_configs') or []):
+                    name = sc.get('config_name')
+                    if not name:
+                        continue
+                    cur.execute('SELECT 1 FROM scan_configs WHERE config_name = ?', (name,))
+                    exists = cur.fetchone() is not None
+                    if exists:
+                        cur.execute('''
+                            UPDATE scan_configs
+                            SET prefix_remove=?, suffix_remove=?, extract_start=?, extract_length=?, extract_mode=?, is_default=?, updated_at=CURRENT_TIMESTAMP
+                            WHERE config_name=?
+                        ''', (
+                            int(sc.get('prefix_remove') or 0),
+                            int(sc.get('suffix_remove') or 0),
+                            int(sc.get('extract_start') or 0),
+                            int(sc.get('extract_length') or 0),
+                            sc.get('extract_mode') or 'none',
+                            int(sc.get('is_default') or 0),
+                            name
+                        ))
+                    else:
+                        cur.execute('''
+                            INSERT INTO scan_configs (config_name, prefix_remove, suffix_remove, extract_start, extract_length, extract_mode, is_default)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                        ''', (
+                            name,
+                            int(sc.get('prefix_remove') or 0),
+                            int(sc.get('suffix_remove') or 0),
+                            int(sc.get('extract_start') or 0),
+                            int(sc.get('extract_length') or 0),
+                            sc.get('extract_mode') or 'none',
+                            int(sc.get('is_default') or 0)
+                        ))
+            except Exception:
+                pass
+
+            # 导入导入配置（按名称 Upsert）
+            try:
+                for ic in (data.get('import_configs') or []):
+                    name = ic.get('config_name')
+                    if not name:
+                        continue
+                    field_mapping = ic.get('field_mapping')
+                    custom_field_names = ic.get('custom_field_names')
+                    field_mapping_str = self._maybe_json_str(field_mapping)
+                    custom_names_str = self._maybe_json_str(custom_field_names) if custom_field_names is not None else None
+                    cur.execute('SELECT 1 FROM import_configs WHERE config_name = ?', (name,))
+                    exists = cur.fetchone() is not None
+                    if exists:
+                        cur.execute('''
+                            UPDATE import_configs
+                            SET field_mapping=?, encoding=?, delimiter=?, custom_field_names=?, is_default=?, updated_at=CURRENT_TIMESTAMP
+                            WHERE config_name=?
+                        ''', (
+                            field_mapping_str,
+                            ic.get('encoding') or 'utf-8',
+                            ic.get('delimiter') or ',',
+                            custom_names_str,
+                            int(ic.get('is_default') or 0),
+                            name
+                        ))
+                    else:
+                        cur.execute('''
+                            INSERT INTO import_configs (config_name, field_mapping, encoding, delimiter, custom_field_names, is_default)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                        ''', (
+                            name,
+                            field_mapping_str,
+                            ic.get('encoding') or 'utf-8',
+                            ic.get('delimiter') or ',',
+                            custom_names_str,
+                            int(ic.get('is_default') or 0)
+                        ))
+            except Exception:
+                pass
+
+            # 导入标签模板（按模板名 Upsert）
+            try:
+                for lt in (data.get('label_templates') or []):
+                    name = lt.get('template_name')
+                    if not name:
+                        continue
+                    cfg_str = self._maybe_json_str(lt.get('template_config'))
+                    cur.execute('SELECT 1 FROM label_templates WHERE template_name = ?', (name,))
+                    exists = cur.fetchone() is not None
+                    if exists:
+                        cur.execute('''
+                            UPDATE label_templates
+                            SET template_config=?, label_width=?, label_height=?, is_default=?, updated_at=CURRENT_TIMESTAMP
+                            WHERE template_name=?
+                        ''', (
+                            cfg_str,
+                            int(lt.get('label_width') or 100),
+                            int(lt.get('label_height') or 60),
+                            int(lt.get('is_default') or 0),
+                            name
+                        ))
+                    else:
+                        cur.execute('''
+                            INSERT INTO label_templates (template_name, template_config, label_width, label_height, is_default)
+                            VALUES (?, ?, ?, ?, ?)
+                        ''', (
+                            name,
+                            cfg_str,
+                            int(lt.get('label_width') or 100),
+                            int(lt.get('label_height') or 60),
+                            int(lt.get('is_default') or 0)
+                        ))
+            except Exception:
+                pass
+
+            conn.commit()
+            conn.close()
+
+            # 刷新界面并应用相关定时器设置
+            try:
+                self.load_all_settings()
+                self.update_db_info()
+                self._apply_backup_settings()
+                # 若启用云同步设置逻辑，确保定时器一致
+                self._apply_cloud_sync_settings()
+            except Exception:
+                pass
+
+            QMessageBox.information(self, "成功", f"已导入设置并覆盖当前配置:\n{file_path}")
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"导入失败：{e}")
+
     def _apply_daily_full_sync_settings(self):
         """根据设置调度每日全量同步的下一次触发时间"""
         try:
@@ -1890,7 +2225,7 @@ class SystemSettings(QWidget):
                 print(f'启动云同步服务失败: {e}')
             # 入队 full_sync 任务，避免阻塞 UI
             try:
-                svc.trigger_sync('full_sync', {})
+                svc.trigger_sync('full_sync', {}, force=True)
             except Exception as e:
                 print(f'每日全量同步入队失败: {e}')
         finally:
@@ -1926,12 +2261,7 @@ class SystemSettings(QWidget):
             self.db.set_setting('backup_interval', str(self.backup_interval.value()))
             self.db.set_setting('max_backup_files', str(self.max_backup_files.value()))
             
-            # 云同步设置
-            self.db.set_setting('auto_sync_enabled', 'true' if self.auto_sync_enabled.isChecked() else 'false')
-            self.db.set_setting('sync_interval_minutes', str(self.sync_interval_minutes.value()))
-            # 每日全量同步设置
-            self.db.set_setting('daily_full_sync_enabled', 'true' if self.daily_full_sync_enabled.isChecked() else 'false')
-            self.db.set_setting('daily_full_sync_time', self.daily_full_sync_time.time().toString('HH:mm'))
+            # 云同步设置（自动上传与每日全量设置已移除，不再保存）
 
             
             # 界面设置
@@ -1989,10 +2319,7 @@ class SystemSettings(QWidget):
             self.db.set_setting('print_extra_margin_mm', str(self.extra_margin_mm.value()))
             
             # 发出设置变更信号
-            # 立即应用云同步相关设置（启动/停止服务与定时器）
-            self._apply_cloud_sync_settings()
-            # 应用每日全量同步设置（调度下一次触发）
-            self._apply_daily_full_sync_settings()
+            # 自动云上传与每日全量调度已禁用，不再应用对应设置
             # 应用自动备份设置（启动/停止定时器）
             try:
                 self._apply_backup_settings()
@@ -2339,8 +2666,7 @@ class SystemSettings(QWidget):
     def on_vacuum_now(self):
         """立即执行 VACUUM 清理数据库碎片"""
         try:
-            import sqlite3
-            conn = sqlite3.connect(self.db.db_path)
+            conn = self.db.get_connection()
             cur = conn.cursor()
             cur.execute('VACUUM')
             conn.commit()
@@ -2380,8 +2706,7 @@ class SystemSettings(QWidget):
     def on_repair_db_clicked(self):
         """尝试修复数据库：重建索引并进行完整性检查"""
         try:
-            import sqlite3
-            conn = sqlite3.connect(self.db.db_path)
+            conn = self.db.get_connection()
             cur = conn.cursor()
             cur.execute('REINDEX')
             cur.execute('PRAGMA integrity_check')
