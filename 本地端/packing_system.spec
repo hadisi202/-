@@ -1,28 +1,40 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 import os
+import glob
 from PyInstaller.building.build_main import Analysis, PYZ, EXE, COLLECT
-from PyInstaller.building.datastruct import Tree
 
 block_cipher = None
 
 # Ensure paths are relative to spec location (本地端)
-_pathex = [os.path.dirname(__file__)]
+# Use working directory to avoid __file__ issues when loading spec
+_pathex = [os.getcwd()]
 
 # Data files: templates, custom templates, orders, configs and html preview
-datas = []
-datas += [('qr_settings.json', '.')]
-datas += [('preview_component_display.html', '.')]
-datas += Tree('templates', prefix='templates')
-datas += Tree('custom_templates', prefix='custom_templates')
-datas += Tree('orders', prefix='orders')
+datas = [
+    ('qr_settings.json', '.'),
+    ('preview_component_display.html', '.'),
+    ('templates', 'templates'),
+    ('custom_templates', 'custom_templates'),
+    ('orders', 'orders'),
+]
+
+# Collect pyzbar DLLs (libiconv.dll, libzbar*.dll) to fix runtime load
+pyzbar_binaries = []
+try:
+    import pyzbar
+    _pyzbar_dir = os.path.dirname(pyzbar.__file__)
+    for dll in glob.glob(os.path.join(_pyzbar_dir, '*.dll')):
+        pyzbar_binaries.append((dll, 'pyzbar'))
+except Exception:
+    pass
 
 a = Analysis(
     ['main.py'],
     pathex=_pathex,
-    binaries=[],
+    binaries=pyzbar_binaries,
     datas=datas,
-    hiddenimports=[],
+    hiddenimports=['pyzbar', 'pyzbar.pyzbar', 'pyzbar.wrapper'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

@@ -218,6 +218,34 @@
 ## 配置文件说明
 
 ### qr_settings.json
+
+## 构建与打包
+
+- 使用 `packing_system.spec` 构建：在项目根目录执行 `pyinstaller packing_system.spec`。
+- 构建产物位置：
+  - 单目录版：`dist\PackingSystem\PackingSystem.exe`（推荐用于分发与运行）
+  - 单文件版：`dist\PackingSystem.exe`
+- 数据资源打包：已包含 `qr_settings.json`、`preview_component_display.html`、`templates/`、`custom_templates/`、`orders/`。
+- 运行建议：优先使用单目录版，启动更快、被杀毒误报的概率更低。
+
+### 修复说明（pyzbar DLL 缺失）
+- 现象：直接使用命令 `pyinstaller -D -w -i ico10.ico main.py` 打包后，启动报错 `libiconv.dll` 未找到，`pyzbar` 无法加载。
+- 修复：在 `packing_system.spec` 中动态收集并打包 `pyzbar` 的 DLL 文件：
+  - 收集目录：`dist\PackingSystem\_internal\pyzbar`
+  - 包含文件：`libiconv.dll`、`libzbar-64.dll`（以及其他匹配的 `libzbar*.dll`）
+  - 同时将 `pyzbar`、`pyzbar.pyzbar`、`pyzbar.wrapper` 加入 `hiddenimports`
+- 不使用 spec 的替代打包命令：
+  - `pyinstaller -D -w -i ico10.ico main.py --collect-binaries pyzbar`
+
+### 验证步骤
+- 运行：`dist\PackingSystem\PackingSystem.exe`
+- 检查 DLL：确认存在 `dist\PackingSystem\_internal\pyzbar\libiconv.dll` 与 `libzbar-64.dll`
+- 首次运行前：确保 `orders/` 目录与 `packing_system.db` 文件具有读写权限
+
+### 常见问题
+- 启动报 `libiconv.dll` 缺失：请使用 `packing_system.spec` 构建或在命令行加 `--collect-binaries pyzbar`
+- 单文件版启动缓慢：属正常现象（解压到临时目录）；建议改用单目录版
+- 图标缺失：确认 `ico10.ico` 在项目根目录且在 spec 的 `icon` 字段正确指向
 QR码和扫码相关配置：
 ```json
 {
