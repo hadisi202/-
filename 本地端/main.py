@@ -8,6 +8,14 @@ from PyQt5.QtGui import QIcon, QPixmap, QFont
 from database import db
 import traceback
 
+# 导入统一的错误处理和日志模块
+from utils.logging_config import AppLogger, get_logger
+from utils.error_handler import ErrorHandler, handle_errors, handle_errors_silently
+
+# 初始化日志系统
+AppLogger.initialize()
+logger = get_logger('Main')
+
 # 导入各个模块
 from order_management import OrderManagement
 from scan_packaging import ScanPackaging
@@ -129,34 +137,29 @@ class MainWindow(QMainWindow):
             self.tab_widget.addTab(self.error_handling, "🔧 异常处理")
             
         except Exception as e:
-            QMessageBox.critical(self, "错误", f"初始化模块时发生错误：\n{str(e)}")
-            print(f"Error creating tabs: {e}")
-            traceback.print_exc()
+            logger.error("初始化模块时发生错误", exc_info=True)
+            ErrorHandler.show_error(self, e, "初始化模块")
 
+    @handle_errors_silently("刷新订单组件")
     def on_components_deleted_from_pending(self, order_id: int):
         """待包列表删除后，刷新订单管理页的组件列表与统计"""
-        try:
-            if hasattr(self, 'order_management'):
-                if hasattr(self.order_management, 'load_order_details') and order_id:
-                    self.order_management.load_order_details(order_id)
-                # 同步刷新订单列表以更新总数统计
-                if hasattr(self.order_management, 'load_orders'):
-                    self.order_management.load_orders()
-        except Exception:
-            pass
+        if hasattr(self, 'order_management'):
+            if hasattr(self.order_management, 'load_order_details') and order_id:
+                self.order_management.load_order_details(order_id)
+            # 同步刷新订单列表以更新总数统计
+            if hasattr(self.order_management, 'load_orders'):
+                self.order_management.load_orders()
     
+    @handle_errors_silently("刷新托盘包裹")
     def on_package_deleted(self, package_number: str):
         """包裹删除后，刷新托盘管理页的包裹列表"""
-        try:
-            if hasattr(self, 'pallet_management'):
-                # 刷新托盘管理页的包裹列表
-                if hasattr(self.pallet_management, 'load_completed_packages'):
-                    self.pallet_management.load_completed_packages()
-                # 如果有其他需要刷新的列表，也可以在这里添加
-                if hasattr(self.pallet_management, 'load_pallet_packages'):
-                    self.pallet_management.load_pallet_packages()
-        except Exception:
-            pass
+        if hasattr(self, 'pallet_management'):
+            # 刷新托盘管理页的包裹列表
+            if hasattr(self.pallet_management, 'load_completed_packages'):
+                self.pallet_management.load_completed_packages()
+            # 如果有其他需要刷新的列表，也可以在这里添加
+            if hasattr(self.pallet_management, 'load_pallet_packages'):
+                self.pallet_management.load_pallet_packages()
     
     def on_admin_components_deleted(self, *args):
         """管理员删除板件后，联动刷新相关页面"""
@@ -284,29 +287,34 @@ class MainWindow(QMainWindow):
         self.status_timer.timeout.connect(self.update_status)
         self.status_timer.start(5000)  # 每5秒更新一次
     
+    @handle_errors_silently("更新状态栏")
     def update_status(self):
         """更新状态栏信息"""
+        conn = db.get_connection()
         try:
-            conn = db.get_connection()
             cursor = conn.cursor()
             
-            # 获取今日统计信息
+            # 优化：使用单个查询替代多个子查询
             cursor.execute('''
                 SELECT 
-                    (SELECT COUNT(*) FROM packages WHERE DATE(created_at) = DATE('now')) as packages_today,
-                    (SELECT COUNT(*) FROM packages WHERE status = 'open') as open_packages,
-                    (SELECT COUNT(*) FROM pallets WHERE status = 'open') as open_pallets
+                    COUNT(CASE WHEN DATE(created_at) = DATE('now') THEN 1 END) as packages_today,
+                    COUNT(CASE WHEN status = 'open' THEN 1 END) as open_packages
+                FROM packages
             ''')
+            packages_result = cursor.fetchone()
             
-            result = cursor.fetchone()
-            if result:
-                packages_today, open_packages, open_pallets = result
+            cursor.execute('''
+                SELECT COUNT(*) FROM pallets WHERE status = 'open'
+            ''')
+            pallets_result = cursor.fetchone()
+            
+            if packages_result and pallets_result:
+                packages_today, open_packages = packages_result
+                open_pallets = pallets_result[0]
                 status_text = f"今日包装: {packages_today} | 未完成包装: {open_packages} | 未封托盘: {open_pallets}"
                 self.status_label.setText(status_text)
-            
+        finally:
             conn.close()
-        except Exception as e:
-            self.status_label.setText(f"状态更新失败: {str(e)}")
     
     def set_style(self):
         """设置应用样式"""
@@ -367,49 +375,44 @@ class MainWindow(QMainWindow):
         self.status_label.setText("欢迎使用 哈迪斯 打包系统！")
         QTimer.singleShot(3000, lambda: self.status_label.setText("系统就绪"))
     
+    @handle_errors(lambda self=None: self, "导入数据")
     def import_data(self):
         """导入数据"""
-        try:
-            # 切换到订单管理标签页并触发导入
-            self.tab_widget.setCurrentIndex(0)
-            self.order_management.import_csv_data()
-        except Exception as e:
-            QMessageBox.critical(self, "错误", f"导入数据时发生错误：\n{str(e)}")
+        # 切换到订单管理标签页并触发导入
+        self.tab_widget.setCurrentIndex(0)
+        self.order_management.import_csv_data()
     
+    @handle_errors(lambda self=None: self, "导出数据")
     def export_data(self):
         """导出数据"""
-        try:
-            # 切换到报表统计标签页并触发导出（调用报表页的导出对话框）
-            self.tab_widget.setCurrentIndex(4)
-            self.reports.export_data()
-        except Exception as e:
-            QMessageBox.critical(self, "错误", f"导出数据时发生错误：\n{str(e)}")
+        # 切换到报表统计标签页并触发导出（调用报表页的导出对话框）
+        self.tab_widget.setCurrentIndex(4)
+        self.reports.export_data()
     
+    @handle_errors(lambda self=None: self, "备份数据库")
     def backup_database(self):
         """备份数据库"""
-        try:
-            import shutil
-            from datetime import datetime
-            
-            backup_name = f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
-            shutil.copy2(db.db_path, backup_name)
-            QMessageBox.information(self, "成功", f"数据库已备份为: {backup_name}")
-        except Exception as e:
-            QMessageBox.critical(self, "错误", f"备份数据库时发生错误：\n{str(e)}")
+        import shutil
+        from datetime import datetime
+        
+        backup_name = f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
+        shutil.copy2(db.db_path, backup_name)
+        ErrorHandler.show_info(self, f"数据库已备份为: {backup_name}", "成功")
+        logger.info(f"数据库已备份: {backup_name}")
     
+    @handle_errors(lambda self=None: self, "恢复数据库")
     def restore_database(self):
         """恢复数据库"""
         from PyQt5.QtWidgets import QFileDialog
-        try:
-            file_path, _ = QFileDialog.getOpenFileName(
-                self, "选择备份文件", "", "数据库文件 (*.db)")
-            
-            if file_path:
-                import shutil
-                shutil.copy2(file_path, db.db_path)
-                QMessageBox.information(self, "成功", "数据库已恢复，请重启应用程序")
-        except Exception as e:
-            QMessageBox.critical(self, "错误", f"恢复数据库时发生错误：\n{str(e)}")
+        
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "选择备份文件", "", "数据库文件 (*.db)")
+        
+        if file_path:
+            import shutil
+            shutil.copy2(file_path, db.db_path)
+            ErrorHandler.show_info(self, "数据库已恢复，请重启应用程序", "成功")
+            logger.info(f"数据库已从 {file_path} 恢复")
     
     def show_about(self):
         """显示关于信息"""
@@ -438,13 +441,7 @@ class MainWindow(QMainWindow):
         )
         
         if reply == QMessageBox.Yes:
-            # 保存当前状态
-            try:
-                # 这里可以添加保存当前工作状态的代码
-                pass
-            except Exception as e:
-                print(f"保存状态时发生错误: {e}")
-            
+            logger.info("应用程序正常退出")
             event.accept()
         else:
             event.ignore()
@@ -504,7 +501,8 @@ def main():
         
     except Exception as e:
         splash.close()
-        QMessageBox.critical(None, "启动错误", f"系统启动时发生错误：\n{str(e)}")
+        logger.critical("系统启动失败", exc_info=True)
+        ErrorHandler.show_error(None, e, "系统启动")
         sys.exit(1)
     
     sys.exit(app.exec_())
